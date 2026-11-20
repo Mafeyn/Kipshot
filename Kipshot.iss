@@ -1,6 +1,6 @@
 ﻿; Kipshot — скрипт установщика (Inno Setup 6)
 #define AppName "Kipshot"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define AppExe "Kipshot.exe"
 
 [Setup]

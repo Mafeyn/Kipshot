@@ -23,6 +23,7 @@ import shutil
 import json
 import math
 import subprocess
+import tempfile
 import asyncio
 import threading
 
@@ -40,33 +41,34 @@ from PySide6.QtWidgets import (QApplication, QWidget, QMainWindow, QListWidget, 
                                QPlainTextEdit, QStackedWidget, QSplitter, QStyledItemDelegate, QStyle,
                                QMenu, QSystemTrayIcon, QFrame, QInputDialog, QMessageBox, QDialog,
                                QComboBox, QSpinBox, QCheckBox, QFormLayout, QDialogButtonBox,
-                               QFileDialog, QAbstractItemView, QButtonGroup, QGraphicsDropShadowEffect,
+                               QFileDialog, QAbstractItemView, QButtonGroup, QGraphicsDropShadowEffect, QToolTip, QListView,
+                               QGridLayout, QAbstractButton,
                                QGraphicsOpacityEffect)
 from PySide6.QtNetwork import (QLocalServer, QLocalSocket, QNetworkAccessManager, QNetworkRequest,
                                QHttpMultiPart, QHttpPart)
 
 APP = "Kipshot"
 OLD_APP = "ClipNest"  # прежнее название: оттуда забираем историю и автозапуск
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 IS_WIN = sys.platform == "win32"
 
 # ───────────────────────────── Цвета и стиль ─────────────────────────────
-BG = "#0d0e12"
-PANEL = "#111217"
-CARD = "#17181e"
-CARD_HOVER = "#1e1f27"
-CARD_SEL = "#24204a"
-ACCENT = "#7b6cff"
-ACCENT_HI = "#a196ff"
-TEXT = "#f1f1f4"
-MUTED = "#8b8c99"
-FAINT = "#5e5f6c"
-BORDER = "#25262e"
-LINE = "#1b1c22"
+BG = "#0e0d14"
+PANEL = "#13121b"
+CARD = "#1a1924"
+CARD_HOVER = "#22202e"
+CARD_SEL = "#2a2152"
+ACCENT = "#8b5cf6"
+ACCENT_HI = "#b8a2ff"
+TEXT = "#f3f2f8"
+MUTED = "#9b98ad"
+FAINT = "#676480"
+BORDER = "#2a2838"
+LINE = "#1e1c29"
 PIN = "#fbbf24"
 DANGER = "#f87171"
 MONO = "'Cascadia Mono', Consolas, monospace"
-KIND_COLOR = {"text": "#8b7cff", "note": "#34d399", "link": "#60a5fa", "files": "#fbbf24",
+KIND_COLOR = {"text": "#a78bfa", "note": "#34d399", "link": "#8b9cff", "files": "#cbd2e0",
               "image": "#f472b6", "color": "#a3a3ad"}
 KIND_ICON = {"text": "type", "note": "note", "link": "link", "files": "file", "image": "image", "color": "drop"}
 
@@ -118,6 +120,21 @@ ICON_SVG = {  # линейные иконки 24×24, рисуются цвет�
     "eraser": '<path d="M7 20h13M5 15l9-9.5a1.5 1.5 0 0 1 2.1 0l3.4 3.4a1.5 1.5 0 0 1 0 2.1L12 20H9z"/><path d="M9.5 10.5l5 5"/>',
     "undo": '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     "redo": '<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+    "bolt_fill": '<path fill="{c}" d="M13.2 2.5 4.8 13.4h6.1l-1.1 8.1 8.4-10.9h-6.1z"/>',
+    "filter": '<path d="M4 5h16l-6.3 7.4V19l-3.4 1.6v-8.2z"/>',
+    "grid": '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/>'
+            '<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
+    "list": '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="2.6"/>',
+    "zoom": '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8.5v5M8.5 11h5"/>',
+    "expand": '<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15'
+              'M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>',
+    "dots": '<circle cx="5.5" cy="12" r="1.3" fill="{c}"/><circle cx="12" cy="12" r="1.3" fill="{c}"/>'
+            '<circle cx="18.5" cy="12" r="1.3" fill="{c}"/>',
+    "info": '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.9v.1"/>',
+    "calendar": '<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    "chev_right": '<path d="M9.5 6.5 15 12l-5.5 5.5"/>',
+    "paste": '<rect x="5" y="4.5" width="14" height="16" rx="2"/><path d="M9 4.5v-1h6v1M8.5 10h7M8.5 13.5h7M8.5 17h4"/>',
+    "box": '<path d="M12 3.5 20 7.5v9L12 20.5 4 16.5v-9z"/><path d="M4 7.5l8 4 8-4M12 11.5v9"/>',
 }
 _SVG_CACHE = {}
 
@@ -127,7 +144,8 @@ def draw_icon(p, name, rect, color=MUTED, stroke=1.75):
     r = _SVG_CACHE.get(key)
     if r is None:
         svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{key[1]}" '
-               f'stroke-width="{stroke}" stroke-linecap="round" stroke-linejoin="round">{ICON_SVG[name]}</svg>')
+               f'stroke-width="{stroke}" stroke-linecap="round" stroke-linejoin="round">'
+               f'{ICON_SVG[name].replace("{c}", key[1])}</svg>')
         r = _SVG_CACHE[key] = QSvgRenderer(QByteArray(svg.encode()))
     r.render(p, QRectF(rect))
 
@@ -160,14 +178,61 @@ def set_icon(btn, name, color=MUTED, size=16, on=None):
 QSS = f"""
 * {{ color: {TEXT}; font-size: 10pt; }}
 QMainWindow, QDialog {{ background: {BG}; }}
-QWidget#side {{ background: {PANEL}; border-right: 1px solid {LINE}; }}
-QWidget#center {{ background: {BG}; }}
-QWidget#preview {{ background: {PANEL}; border-left: 1px solid {LINE}; }}
+QWidget#root, QWidget#side, QWidget#center {{ background: {BG}; }}
+QFrame#previewCard {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
+QLabel#brand {{ font-size: 15pt; font-weight: 700; }}
+QLabel#sectionTitle {{ color: {MUTED}; font-size: 10pt; }}
+QFrame#hline {{ background: {LINE}; border: none; }}
+QFrame#searchBox {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; min-height: 44px; }}
+QFrame#searchBox[focus="true"] {{ border-color: {ACCENT}; }}
+QLineEdit#searchEdit {{ background: transparent; border: none; padding: 0; font-size: 10.5pt; }}
+QLabel#kbd {{ color: {MUTED}; background: rgba(255, 255, 255, 12); border: 1px solid rgba(255, 255, 255, 26);
+    border-radius: 6px; padding: 2px 8px; font-size: 8.5pt; }}
+QToolButton#squareBtn {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 0; }}
+QToolButton#squareBtn:hover {{ background: {CARD_HOVER}; border-color: #3a3750; }}
+QToolButton#squareBtn[active="true"] {{ border-color: {ACCENT}; background: rgba(139, 92, 246, 40); }}
+QFrame#chipBar {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; }}
+QPushButton#kindChip {{ background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 7px 13px;
+    color: {MUTED}; }}
+QPushButton#kindChip:hover {{ color: {TEXT}; background: rgba(255, 255, 255, 10); }}
+QPushButton#kindChip:checked {{ color: white; font-weight: 600; border-color: #a184ff;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8b66ff, stop:1 #6c45ea); }}
+QToolButton#iconBtn, QPushButton#iconBtn {{ background: transparent; border: none; border-radius: 7px; padding: 5px; }}
+QToolButton#iconBtn:hover, QPushButton#iconBtn:hover {{ background: rgba(255, 255, 255, 18); }}
+QToolButton#overlayBtn {{ background: rgba(14, 13, 20, 170); border: 1px solid rgba(255, 255, 255, 30);
+    border-radius: 10px; padding: 0; }}
+QToolButton#overlayBtn:hover {{ background: rgba(139, 92, 246, 200); border-color: #b8a2ff; }}
+QPushButton#tabLine {{ background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 9px 12px 10px 12px; color: {MUTED}; font-size: 10.5pt; }}
+QPushButton#tabLine:hover {{ color: {TEXT}; }}
+QPushButton#tabLine:checked {{ color: {TEXT}; border-bottom-color: {ACCENT}; }}
+QToolButton#folderCard {{ background: rgba(255, 255, 255, 6); border: 1px dashed #3d3a52; border-radius: 12px;
+    padding: 6px; color: {MUTED}; }}
+QToolButton#folderCard:hover {{ border-color: {ACCENT}; color: {TEXT}; background: rgba(139, 92, 246, 26); }}
+QPushButton#tagChip {{ background: rgba(139, 92, 246, 46); border: 1px solid rgba(139, 92, 246, 90); border-radius: 13px;
+    padding: 4px 12px; color: #e7defe; font-size: 9pt; }}
+QPushButton#tagChip:hover {{ background: rgba(248, 113, 113, 40); border-color: rgba(248, 113, 113, 110); }}
+QPushButton#tagAdd {{ background: transparent; border: 1px dashed #3d3a52; border-radius: 13px; padding: 4px 12px;
+    color: {MUTED}; font-size: 9pt; }}
+QPushButton#tagAdd:hover {{ border-color: {ACCENT}; color: {TEXT}; }}
+QLineEdit#tagEdit {{ border-radius: 13px; padding: 3px 10px; font-size: 9pt; }}
+QPushButton#statusBtn {{ background: transparent; border: none; padding: 2px 4px; color: {MUTED}; font-size: 8.5pt;
+    text-align: left; }}
+QPushButton#statusBtn:hover {{ color: {TEXT}; }}
+QLabel#notice {{ background: #262338; color: {TEXT}; border: 1px solid #3b3656; border-radius: 10px; padding: 8px 16px; }}
+QPlainTextEdit#bodyText {{ background: #0f0e16; border: 1px solid {BORDER}; border-radius: 12px; padding: 12px 14px;
+    font-family: {MONO}; font-size: 10pt; }}
+QPlainTextEdit#bodyText:focus {{ border-color: {ACCENT}; }}
+QFrame#softCard {{ background: #0f0e16; border: 1px solid {BORDER}; border-radius: 12px; }}
+QListWidget#filesList {{ background: #0f0e16; border: 1px solid {BORDER}; border-radius: 12px; padding: 6px; }}
+QListWidget#filesList::item {{ padding: 8px 6px; border-radius: 8px; }}
+QListWidget#filesList::item:hover {{ background: rgba(255, 255, 255, 10); }}
+QListWidget#filesList::item:selected {{ background: rgba(139, 92, 246, 50); }}
 QLabel#logo {{ font-size: 12.5pt; font-weight: 600; }}
 QLabel#muted {{ color: {MUTED}; }}
 QLabel#hint {{ color: {FAINT}; font-size: 8.5pt; }}
 QLabel#section {{ color: {FAINT}; font-size: 8pt; font-weight: 700; padding-top: 12px; }}
-QLabel#badge {{ background: rgba(123, 108, 255, 36); color: #b9b0ff; border: 1px solid rgba(123, 108, 255, 77);
+QLabel#badge {{ background: rgba(139, 92, 246, 36); color: #b9b0ff; border: 1px solid rgba(139, 92, 246, 77);
     border-radius: 6px; padding: 2px 8px; font-size: 8.5pt; font-weight: 600; }}
 QLabel#empty {{ color: {FAINT}; font-size: 10.5pt; }}
 QListWidget {{ background: transparent; border: none; outline: none; }}
@@ -178,26 +243,26 @@ QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {{
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover {{ border-color: #30313b; }}
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {ACCENT}; }}
 QLineEdit:read-only {{ color: {MUTED}; }}
-QLineEdit#title {{ background: transparent; border: 1px solid transparent; font-size: 14pt; font-weight: 600;
-    padding: 4px 6px; }}
+QLineEdit#title {{ background: transparent; border: 1px solid transparent; font-size: 16pt; font-weight: 600;
+    padding: 2px 4px; }}
 QLineEdit#title:hover {{ border-color: {BORDER}; }}
 QLineEdit#title:focus {{ background: {CARD}; border-color: {ACCENT}; }}
 QPlainTextEdit {{ padding: 10px 12px; border-radius: 10px; }}
 QComboBox::drop-down {{ border: none; width: 26px; }}
 QComboBox QAbstractItemView {{ background: #18191f; border: 1px solid #2b2c35; padding: 4px; outline: none;
-    selection-background-color: rgba(123, 108, 255, 56); }}
+    selection-background-color: rgba(139, 92, 246, 56); }}
 QSpinBox::up-button, QSpinBox::down-button {{ background: transparent; border: none; width: 20px; }}
 QPushButton, QToolButton {{
-    background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 6px 12px;
+    background: {CARD}; border: 1px solid {BORDER}; border-radius: 10px; padding: 7px 14px;
 }}
 QToolButton::menu-indicator {{ image: none; width: 0; }}
 QPushButton:hover, QToolButton:hover {{ background: {CARD_HOVER}; border-color: #30313b; }}
 QPushButton:pressed, QToolButton:pressed {{ background: #15161c; }}
 QPushButton:disabled, QToolButton:disabled {{ color: {FAINT}; }}
-QPushButton#primary {{ border: 1px solid #8f82ff; color: white; font-weight: 600;
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8a7cff, stop:1 #6b5bf2); }}
-QPushButton#primary:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #998dff, stop:1 #7767ff); }}
-QPushButton#primary:pressed {{ background: #6252e6; }}
+QPushButton#primary {{ border: 1px solid #a184ff; color: white; font-weight: 600;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9370ff, stop:1 #6f48ec); }}
+QPushButton#primary:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #a184ff, stop:1 #7d58f5); }}
+QPushButton#primary:pressed {{ background: #6440df; }}
 QPushButton#primary:disabled {{ background: #2a2747; border-color: #2a2747; color: #8580b0; }}
 QPushButton#ghost, QPushButton#danger, QPushButton#flat {{
     background: transparent; border: 1px solid transparent; color: {MUTED}; }}
@@ -208,19 +273,20 @@ QPushButton#tab {{ border-radius: 7px; padding: 5px 12px; background: transparen
     color: {MUTED}; }}
 QPushButton#tab:hover {{ color: {TEXT}; }}
 QPushButton#tab:checked {{ background: {CARD_HOVER}; border-color: #30313b; color: {TEXT}; }}
-QFrame#quick, QFrame#compact {{ background: #14151a; border: 1px solid #2a2b34; border-radius: 14px; }}
-QFrame#bubble {{ background: #16171c; border: 1px solid #2a2b34; border-radius: 12px; }}
-QWidget#toast {{ background: #15161b; border: 1px solid #2a2b34; border-radius: 14px; }}
+QFrame#quick, QFrame#compact {{ background: {PANEL}; border: 1px solid #2d2a3e; border-radius: 16px; }}
+QFrame#bubble {{ background: #17161f; border: 1px solid #2d2a3e; border-radius: 12px; }}
+QWidget#toast {{ background: {PANEL}; border: 1px solid #2d2a3e; border-radius: 16px; }}
 QLineEdit#compactSearch {{ border-radius: 9px; padding: 7px 10px; }}
 QPushButton#chip {{ background: transparent; border: none; border-radius: 6px; padding: 3px 9px;
     color: {MUTED}; font-size: 8.5pt; }}
 QPushButton#chip:hover {{ color: {TEXT}; background: rgba(255, 255, 255, 13); }}
 QPushButton#chip:checked {{ background: transparent; color: white; }}
-QFrame#chipPill {{ background: rgba(123, 108, 255, 56); border: 1px solid rgba(123, 108, 255, 90); border-radius: 6px; }}
+QFrame#chipPill {{ background: rgba(139, 92, 246, 56); border: 1px solid rgba(139, 92, 246, 90); border-radius: 6px; }}
 QLabel#quickPrev {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 10px; padding: 8px; color: #c8c8d2; }}
-QMenu {{ background: #17181e; border: 1px solid #2b2c35; border-radius: 10px; padding: 5px; }}
+QMenu {{ background: #1a1924; border: 1px solid #2f2c42; border-radius: 10px; padding: 5px; }}
+QMenu::section {{ color: {FAINT}; font-size: 8pt; padding: 6px 12px 3px 12px; }}
 QMenu::item {{ padding: 7px 22px 7px 12px; border-radius: 6px; }}
-QMenu::item:selected {{ background: rgba(123, 108, 255, 51); }}
+QMenu::item:selected {{ background: rgba(139, 92, 246, 51); }}
 QMenu::item:disabled {{ color: {FAINT}; }}
 QMenu::separator {{ height: 1px; background: {BORDER}; margin: 5px 8px; }}
 QToolTip {{ background: #1c1d24; color: {TEXT}; border: 1px solid #2e2f39; padding: 5px 8px; }}
@@ -231,7 +297,7 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QScrollBar:horizontal {{ height: 0; }}
 QStatusBar {{ background: {BG}; color: {MUTED}; border-top: 1px solid {LINE}; }}
-QSplitter::handle {{ background: {LINE}; }}
+QSplitter::handle {{ background: transparent; }}
 QCheckBox {{ spacing: 10px; }}
 QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 5px; border: 1px solid #3a3b46; background: {CARD}; }}
 QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
@@ -316,6 +382,10 @@ if IS_WIN:
     user32 = ctypes.windll.user32
     user32.GetForegroundWindow.restype = wintypes.HWND
     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
     user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
     kernel32 = ctypes.windll.kernel32
     kernel32.GetModuleHandleW.restype = wintypes.HMODULE
@@ -846,7 +916,8 @@ def item_title(d):
         return d["title"]
     kind, text = d["kind"], d["text"] or ""
     if kind == "image":
-        return f"Картинка {text}"
+        path = d["path"] if "path" in d.keys() else None
+        return os.path.basename(path) if path else f"Картинка {text}"
     if kind == "files":
         paths = [p for p in text.splitlines() if p]
         if len(paths) == 1:
@@ -859,13 +930,30 @@ def item_title(d):
 
 
 def item_meta(d, with_time=True):
-    parts = ["Заметка" if d["is_note"] else KIND_LABEL.get(d["kind"], d["kind"]),
-             reltime(d["used"]) if with_time else ""]
-    if d["kind"] in ("text",):
-        parts.append(f"{len(d['text'] or '')} симв.")
-    if d["kind"] == "image" and d["isize"]:
-        parts.append(f"{d['isize'] // 1024} КБ")
-    return " · ".join(p for p in parts if p)
+    kind, text = d["kind"], d["text"] or ""
+    if d["is_note"]:
+        parts = ["Заметка", f"{len(text)} {plural(len(text), 'символ', 'символа', 'символов')}"]
+    elif kind == "text":
+        parts = ["Текст", f"{len(text)} {plural(len(text), 'символ', 'символа', 'символов')}"]
+    elif kind == "link":
+        parts = ["Ссылка", site_name(text.strip())]
+    elif kind == "color":
+        c = parse_color(text)
+        parts = [f"RGB {c.red()}, {c.green()}, {c.blue()}" if c else "Цвет"]
+    elif kind == "image":
+        parts = [f"Картинка {text}", fmt_size(d["isize"]) if d["isize"] else ""]
+    elif kind == "files":
+        ps = [p for p in text.splitlines() if p]
+        if len(ps) == 1:
+            k, size, _ = file_info(ps[0])
+            parts = [k, fmt_size(size) if size is not None else ""]
+        else:
+            parts = [f"{len(ps)} {plural(len(ps), 'файл', 'файла', 'файлов')}"]
+    else:
+        parts = [KIND_LABEL.get(kind, kind)]
+    if with_time:
+        parts.append(reltime(d["used"]))
+    return "  •  ".join(p for p in parts if p)
 
 
 def make_app_icon(size=64):
@@ -894,7 +982,8 @@ def make_app_icon(size=64):
 
 # ───────────────────────────── Хранилище ─────────────────────────────
 class Store:
-    COLS = "id, kind, text, hash, pinned, is_note, folder_id, title, created, used, url, length(image) AS isize"
+    COLS = ("id, kind, text, hash, pinned, is_note, folder_id, title, created, used, url, path, tags, "
+            "length(image) AS isize")
 
     def __init__(self, path):
         self.db = sqlite3.connect(path)
@@ -911,7 +1000,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
         """)
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(items)")}
-        for c in ("url", "del_url"):  # ссылки на хостинг (добавлены в 1.1)
+        for c in ("url", "del_url", "path", "tags", "note"):  # хостинг (1.1), файл, теги и заметка (1.3)
             if c not in cols:
                 self.db.execute(f"ALTER TABLE items ADD COLUMN {c} TEXT")
         self.db.commit()
@@ -961,7 +1050,7 @@ class Store:
         self.db.execute("DELETE FROM items WHERE id=?", (iid,))
         self.db.commit()
 
-    def query(self, view, search="", limit=1000):
+    def query(self, view, search="", limit=1000, kind=None, since=None, oldest_first=False):
         where, args, order = [], [], "used DESC"
         v = view[0]
         if v == "all":
@@ -978,14 +1067,27 @@ class Store:
             where.append("kind='link'")
         elif v == "uploads":
             where.append("url IS NOT NULL AND url<>''")
+        elif v == "files":
+            where.append("kind='files'")
+        elif v == "colors":
+            where.append("kind='color'")
         elif v == "folder":
             where.append("folder_id=?")
             args.append(view[1])
             order = "pinned DESC, used DESC"
+        if kind:
+            where.append("kind=?")
+            args.append(kind)
+        if since:
+            where.append("used>=?")
+            args.append(since)
         if search:
             s = f"%{search.lower()}%"
-            where.append("(pylower(text) LIKE ? OR pylower(title) LIKE ? OR pylower(url) LIKE ?)")
-            args += [s, s, s]
+            where.append("(pylower(text) LIKE ? OR pylower(title) LIKE ? OR pylower(url) LIKE ?"
+                         " OR pylower(tags) LIKE ? OR pylower(note) LIKE ? OR pylower(path) LIKE ?)")
+            args += [s] * 6
+        if oldest_first:
+            order = order.replace("used DESC", "used ASC")
         sql = f"SELECT {self.COLS} FROM items"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -994,8 +1096,8 @@ class Store:
 
     def counts(self):
         r = self.db.execute("""SELECT SUM(is_note=0), SUM(pinned=1), SUM(is_note=1), SUM(kind='image'),
-            SUM(kind='link'), SUM(url IS NOT NULL AND url<>'') FROM items""").fetchone()
-        views = [("all",), ("pinned",), ("notes",), ("images",), ("links",), ("uploads",)]
+            SUM(kind='link'), SUM(url IS NOT NULL AND url<>''), SUM(kind='files'), SUM(kind='color') FROM items""").fetchone()
+        views = [("all",), ("pinned",), ("notes",), ("images",), ("links",), ("uploads",), ("files",), ("colors",)]
         out = {v: r[i] or 0 for i, v in enumerate(views)}
         for row in self.db.execute("SELECT folder_id, COUNT(*) FROM items WHERE folder_id IS NOT NULL GROUP BY folder_id"):
             out[("folder", row[0])] = row[1]
@@ -1057,8 +1159,8 @@ class ItemDelegate(QStyledItemDelegate):
         card = QPainterPath()
         card.addRoundedRect(r, 10, 10)
         if sel:
-            p.fillPath(card, QColor(123, 108, 255, 34))
-            p.setPen(QPen(QColor(123, 108, 255, 115), 1))
+            p.fillPath(card, QColor(139, 92, 246, 34))
+            p.setPen(QPen(QColor(139, 92, 246, 115), 1))
             p.drawPath(card)
         elif hov:
             p.fillPath(card, QColor(255, 255, 255, 10))
@@ -1120,165 +1222,1019 @@ def current_id(lw):
     return it.data(Qt.UserRole) if it else None
 
 
+# ───────────────────────────── Мелкие помощники для окна ─────────────────────────────
+MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+              "октября", "ноября", "декабря"]
+SITE_NAMES = {"github.com": "GitHub", "youtube.com": "YouTube", "youtu.be": "YouTube", "t.me": "Telegram",
+              "vk.com": "ВКонтакте", "google.com": "Google", "docs.google.com": "Google Docs",
+              "drive.google.com": "Google Drive", "discord.com": "Discord", "discord.gg": "Discord",
+              "twitch.tv": "Twitch", "reddit.com": "Reddit", "x.com": "X", "twitter.com": "X",
+              "wikipedia.org": "Википедия", "ru.wikipedia.org": "Википедия", "yandex.ru": "Яндекс",
+              "ya.ru": "Яндекс", "steamcommunity.com": "Steam", "store.steampowered.com": "Steam",
+              "iili.io": "freeimage.host", "files.catbox.moe": "catbox", "pixhost.to": "pixhost"}
+FILE_KINDS = {("zip", "rar", "7z", "tar", "gz"): "Архив", ("png", "jpg", "jpeg", "gif", "webp", "bmp"): "Изображение",
+              ("mp4", "mkv", "avi", "mov", "webm"): "Видео", ("mp3", "wav", "flac", "ogg", "m4a"): "Аудио",
+              ("pdf",): "PDF", ("doc", "docx", "odt", "rtf"): "Документ", ("xls", "xlsx", "csv"): "Таблица",
+              ("txt", "md", "log"): "Текст", ("exe", "msi"): "Программа",
+              ("py", "js", "ts", "cpp", "c", "cs", "java", "json", "html", "css"): "Код"}
+
+
+def plural(n, one, few, many):
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+def fmt_size(n):
+    if n is None:
+        return ""
+    for unit, k in (("ГБ", 1 << 30), ("МБ", 1 << 20), ("КБ", 1 << 10)):
+        if n >= k:
+            v = n / k
+            s = f"{v:.1f}" if v < 10 else f"{v:.0f}"
+            return s.replace(".", ",").replace(",0", "") + " " + unit
+    return f"{n} Б"
+
+
+def site_name(url):
+    u = QUrl(url if "://" in url else "https://" + url)
+    host = (u.host() or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host in SITE_NAMES:
+        return SITE_NAMES[host]
+    parts = host.split(".")
+    return SITE_NAMES.get(".".join(parts[-2:]), host)
+
+
+_FILE_CACHE = {}
+
+
+def file_info(path):
+    """(«Архив», размер в байтах или None, существует ли) — с кэшем, чтобы не дёргать диск на каждой отрисовке."""
+    c = _FILE_CACHE.get(path)
+    if c and time.time() - c[3] < 30:
+        return c[:3]
+    exists = os.path.exists(path)
+    if os.path.isdir(path):
+        kind, size = "Папка", None
+    else:
+        ext = os.path.splitext(path)[1].lower().lstrip(".")
+        kind = next((v for k, v in FILE_KINDS.items() if ext in k), (ext.upper() + "-файл") if ext else "Файл")
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = None
+    _FILE_CACHE[path] = (kind, size, exists, time.time())
+    return kind, size, exists
+
+
+def file_paths(d):
+    return [p for p in (d["text"] or "").splitlines() if p]
+
+
+def day_key(ts):
+    return datetime.date.fromtimestamp(ts or 0)
+
+
+def day_label(day):
+    today = datetime.date.today()
+    if day == today:
+        return "Сегодня"
+    if day == today - datetime.timedelta(days=1):
+        return "Вчера"
+    s = f"{day.day} {MONTHS_GEN[day.month - 1]}"
+    return s if day.year == today.year else f"{s} {day.year}"
+
+
+def when_label(ts):
+    """«Сегодня в 23:14», «Вчера в 18:22», «12 ноября в 09:05»."""
+    dt = datetime.datetime.fromtimestamp(ts or 0)
+    return f"{day_label(dt.date())} в {dt:%H:%M}"
+
+
+def full_date(ts):
+    dt = datetime.datetime.fromtimestamp(ts or 0)
+    return f"{dt.day} {MONTHS_GEN[dt.month - 1]} {dt.year}, {dt:%H:%M}"
+
+
+def image_dims(d):
+    m = re.match(r"(\d+)\D+(\d+)", d["text"] or "")
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+
+def item_tags(d):
+    return [t for t in (d["tags"] or "").split(",") if t.strip()] if "tags" in d.keys() else []
+
+
+def char_count(n):
+    return f"{n} {plural(n, 'символ', 'символа', 'символов')}"
+
+
 # ───────────────────────────── Виджеты предпросмотра ─────────────────────────────
 class ImageView(QWidget):
-    def __init__(self):
+    """Картинка в предпросмотре: вписана целиком, с кнопками «увеличить / во весь экран / открыть»."""
+
+    def __init__(self, on_zoom=None, on_full=None, on_open=None):
         super().__init__()
         self.pm = None
         self.cache = None
-        self.setMinimumHeight(120)
+        self.setMinimumHeight(140)
+        self.btns = []
+        for name, tip, cb in (("zoom", "Открыть в просмотрщике", on_zoom), ("expand", "Во весь экран", on_full),
+                              ("external", "Открыть в программе по умолчанию", on_open)):
+            if cb is None:
+                continue
+            b = set_icon(QToolButton(self), name, "#ffffff", 18)
+            b.setObjectName("overlayBtn")
+            b.setToolTip(tip)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFixedSize(34, 34)
+            b.clicked.connect(cb)
+            self.btns.append(b)
 
     def set_pixmap(self, pm):
         self.pm = pm
         self.cache = None
         self.update()
 
+    def resizeEvent(self, e):
+        x = self.width() - 12
+        for b in reversed(self.btns):
+            x -= b.width()
+            b.move(x, 12)
+            x -= 6
+        super().resizeEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        if self.btns:
+            self.btns[0].click()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 12, 12)
+        p.fillPath(path, QColor("#0b0a10"))
+        if self.pm and not self.pm.isNull():
+            avail = self.size()
+            dpr = self.devicePixelRatioF()
+            key = (avail.width(), avail.height(), dpr)
+            if not self.cache or self.cache[0] != key:
+                self.cache = (key, hidpi_pixmap(self.pm.toImage(), avail.width(), avail.height(), dpr))
+            pm = self.cache[1]
+            w, h = pm.width() / dpr, pm.height() / dpr
+            p.save()
+            p.setClipPath(path)
+            p.drawPixmap(QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h), pm, QRectF(pm.rect()))
+            p.restore()
+        p.setPen(QPen(QColor(255, 255, 255, 22), 1))
+        p.drawPath(path)
+
+
+class ImageViewer(QDialog):
+    """Просмотр картинки: колесо — масштаб, перетаскивание — сдвиг, двойной клик — вписать / 100 %."""
+
+    def __init__(self, img, title, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.img = img
+        self.scale = None
+        self.offset = QPointF(0, 0)
+        self.drag = None
+        g = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+        self.resize(min(g.width() - 80, max(640, img.width() + 40)), min(g.height() - 80, max(420, img.height() + 40)))
+        self.setStyleSheet(f"background: #08070c;")
+        self.info = QLabel(self)
+        self.info.setStyleSheet("background: rgba(20,19,28,210); color: #cfcde0; border-radius: 8px; padding: 5px 10px;")
+        style_window(self)
+
+    def fit_scale(self):
+        return min((self.width() - 40) / self.img.width(), (self.height() - 40) / self.img.height(), 1.0)
+
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()), 12, 12)
-        p.fillPath(path, QColor("#0a0b0e"))
-        p.setPen(QPen(QColor(BORDER), 1))
-        p.drawPath(path)
-        if not self.pm or self.pm.isNull():
+        s = self.scale or self.fit_scale()
+        w, h = self.img.width() * s, self.img.height() * s
+        x = (self.width() - w) / 2 + self.offset.x()
+        y = (self.height() - h) / 2 + self.offset.y()
+        p.drawImage(QRectF(x, y, w, h), self.img)
+        self.info.setText(f"{self.img.width()} × {self.img.height()}   ·   {round(s * 100)} %   ·   "
+                          "колесо — масштаб, Esc — закрыть")
+        self.info.adjustSize()
+        self.info.move(12, self.height() - self.info.height() - 12)
+
+    def wheelEvent(self, e):
+        s = self.scale or self.fit_scale()
+        self.scale = max(0.05, min(16.0, s * (1.15 if e.angleDelta().y() > 0 else 1 / 1.15)))
+        self.update()
+
+    def mousePressEvent(self, e):
+        self.drag = (e.position(), QPointF(self.offset))
+
+    def mouseMoveEvent(self, e):
+        if self.drag:
+            self.offset = self.drag[1] + (e.position() - self.drag[0])
+            self.update()
+
+    def mouseReleaseEvent(self, e):
+        self.drag = None
+
+    def mouseDoubleClickEvent(self, e):
+        self.scale = None if self.scale else 1.0
+        self.offset = QPointF(0, 0)
+        self.update()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_F11:
+            self.showNormal() if self.isFullScreen() else self.showFullScreen()
             return
-        avail = self.rect().adjusted(10, 10, -10, -10).size()
-        dpr = self.devicePixelRatioF()
-        key = (avail.width(), avail.height(), dpr)
-        if not self.cache or self.cache[0] != key:
-            self.cache = (key, hidpi_pixmap(self.pm.toImage(), avail.width(), avail.height(), dpr))
-        pm = self.cache[1]
-        w, h = pm.width() / dpr, pm.height() / dpr
-        x = (self.width() - w) / 2
-        y = (self.height() - h) / 2
-        p.drawPixmap(QRectF(x, y, w, h), pm, QRectF(pm.rect()))
+        super().keyPressEvent(e)
 
 
 class ColorView(QWidget):
-    def __init__(self):
+    """Цвет: большой образец и форматы, каждый копируется одной кнопкой."""
+
+    def __init__(self, notify):
         super().__init__()
-        self.c = QColor("black")
+        self.notify = notify
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.swatch = QWidget()
-        self.swatch.setMinimumHeight(160)
-        self.info = QLabel()
-        self.info.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.info.setStyleSheet(f"font-family: {MONO}; font-size: 10.5pt; color: {MUTED};")
+        lay.setSpacing(10)
+        self.swatch = QLabel()
+        self.swatch.setMinimumHeight(120)
         lay.addWidget(self.swatch, 1)
-        lay.addWidget(self.info)
+        self.rows = []
+        grid = QFormLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(6)
+        for name in ("HEX", "RGB", "HSL"):
+            row = QHBoxLayout()
+            val = QLabel()
+            val.setStyleSheet(f"font-family: {MONO}; font-size: 10.5pt;")
+            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            b = set_icon(QPushButton(), "copy", MUTED, 15)
+            b.setObjectName("iconBtn")
+            b.setToolTip(f"Копировать {name}")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, v=val, n=name: self.copy(v.text(), n))
+            row.addWidget(val, 1)
+            row.addWidget(b)
+            lb = QLabel(name)
+            lb.setObjectName("muted")
+            grid.addRow(lb, row)
+            self.rows.append(val)
+        lay.addLayout(grid)
+
+    def copy(self, text, name):
+        QGuiApplication.clipboard().setText(text)
+        self.notify(f"{name} скопирован")
 
     def set_color(self, c):
-        self.c = c
-        self.swatch.setStyleSheet(f"background: {c.name(QColor.HexArgb if c.alpha() < 255 else QColor.HexRgb)};"
-                                  f" border-radius: 14px; border: 1px solid {BORDER};")
+        name = c.name(QColor.HexArgb if c.alpha() < 255 else QColor.HexRgb)
+        self.swatch.setStyleSheet(f"background: {name}; border-radius: 12px; border: 1px solid rgba(255,255,255,30);")
         h, s, l, _ = c.getHsl()
-        self.info.setText(f"HEX   {c.name().upper()}\nRGB   {c.red()}, {c.green()}, {c.blue()}\n"
-                          f"HSL   {max(h, 0)}°, {round(s / 2.55)}%, {round(l / 2.55)}%")
+        vals = [c.name().upper(), f"rgb({c.red()}, {c.green()}, {c.blue()})",
+                f"hsl({max(h, 0)}, {round(s / 2.55)}%, {round(l / 2.55)}%)"]
+        for lbl, v in zip(self.rows, vals):
+            lbl.setText(v)
 
 
-class Preview(QWidget):
-    def __init__(self, ctl):
+class LinkView(QFrame):
+    def __init__(self):
         super().__init__()
-        self.setObjectName("preview")
-        self.setAttribute(Qt.WA_StyledBackground)
-        self.ctl = ctl
+        self.setObjectName("softCard")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(10)
+        top = QHBoxLayout()
+        top.setSpacing(12)
+        self.badge = QLabel()
+        self.badge.setFixedSize(44, 44)
+        self.badge.setAlignment(Qt.AlignCenter)
+        self.site = QLabel()
+        self.site.setStyleSheet("font-size: 13pt; font-weight: 600;")
+        top.addWidget(self.badge)
+        top.addWidget(self.site, 1)
+        lay.addLayout(top)
+        self.url = QLabel()
+        self.url.setWordWrap(True)
+        self.url.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.url.setStyleSheet(f"font-family: {MONO}; font-size: 10pt; color: {ACCENT_HI};")
+        lay.addWidget(self.url)
+        lay.addStretch()
+
+    def set_url(self, url):
+        name = site_name(url)
+        self.site.setText(name or "Ссылка")
+        letter = (name or "?")[0].upper()
+        self.badge.setText(letter)
+        self.badge.setStyleSheet(f"background: rgba(139,92,246,40); color: {ACCENT_HI}; border-radius: 12px;"
+                                 " font-size: 16pt; font-weight: 700;")
+        self.url.setText(url)
+
+
+class FilesView(QListWidget):
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("filesList")
+        self.setIconSize(QSize(20, 20))
+        self.itemDoubleClicked.connect(lambda it: QDesktopServices.openUrl(QUrl.fromLocalFile(it.data(Qt.UserRole))))
+        self.setToolTip("Двойной клик — открыть")
+
+    def set_paths(self, paths):
+        self.clear()
+        for pth in paths:
+            kind, size, exists = file_info(pth)
+            name = os.path.basename(pth.rstrip("/\\")) or pth
+            it = QListWidgetItem(icon("folder" if kind == "Папка" else "file", MUTED if exists else FAINT),
+                                 f"{name}\n{kind}" + (f" • {fmt_size(size)}" if size is not None else "")
+                                 + ("" if exists else " • файла уже нет"))
+            it.setData(Qt.UserRole, pth)
+            it.setToolTip(pth)
+            self.addItem(it)
+
+
+class Toggle(QAbstractButton):
+    """Переключатель в стиле Windows 11 с плавным бегунком."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(38, 22)
+        self._pos = 0.0
+        self.anim = QVariantAnimation(self)
+        self.anim.setDuration(160)
+        self.anim.setEasingCurve(QEasingCurve.OutCubic)
+        self.anim.valueChanged.connect(lambda v: (setattr(self, "_pos", v), self.update()))
+        self.toggled.connect(self._go)
+
+    def _go(self, on):
+        self.anim.stop()
+        self.anim.setStartValue(self._pos)
+        self.anim.setEndValue(1.0 if on else 0.0)
+        self.anim.start()
+
+    def setChecked(self, on):
+        super().setChecked(on)
+        self.anim.stop()
+        self._pos = 1.0 if on else 0.0
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        on = QColor(ACCENT)
+        off = QColor("#2b2938")
+        c = QColor(int(off.red() + (on.red() - off.red()) * self._pos), int(off.green() + (on.green() - off.green()) * self._pos),
+                   int(off.blue() + (on.blue() - off.blue()) * self._pos))
+        p.setPen(QPen(QColor(255, 255, 255, 28), 1))
+        p.setBrush(c)
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        d = r.height() - 6
+        x = r.left() + 3 + (r.width() - d - 6) * self._pos
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QRectF(x, r.top() + 3, d, d))
+
+
+class SideButton(QAbstractButton):
+    """Кнопка боковой панели: иконка, подпись и, по желанию, подсказка с клавишами справа."""
+
+    def __init__(self, ic, text, kbd="", variant="ghost", parent=None):
+        super().__init__(parent)
+        self.ic, self.kbd, self.variant, self.warn = ic, kbd, variant, False
+        self.setText(text)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(46 if variant != "ghost" else 38)
+        self.setAttribute(Qt.WA_Hover)
+
+    def set_kbd(self, kbd, warn=False):
+        self.kbd, self.warn = kbd, warn
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        hov = self.underMouse()
+        down = self.isDown()
+        if self.variant == "accent":
+            p.setPen(QPen(QColor(139, 92, 246, 200 if hov else 150), 1.2))
+            p.setBrush(QColor(139, 92, 246, 70 if down else 52 if hov else 36))
+            p.drawRoundedRect(r, 10, 10)
+        elif self.variant == "card":
+            p.setPen(QPen(QColor(255, 255, 255, 30 if hov else 18), 1))
+            p.setBrush(QColor(255, 255, 255, 16 if hov else 8))
+            p.drawRoundedRect(r, 10, 10)
+        elif hov:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, 12))
+            p.drawRoundedRect(r, 9, 9)
+        x = 14
+        draw_icon(p, self.ic, QRectF(x, r.center().y() - 10, 20, 20),
+                  "#ffffff" if self.variant == "accent" else (TEXT if hov else "#c9c7d6"))
+        x += 32
+        f = QFont(self.font())
+        f.setPointSizeF(10.5 if self.variant != "ghost" else 10)
+        if self.variant != "ghost":
+            f.setWeight(QFont.Medium)
+        p.setFont(f)
+        p.setPen(QColor(TEXT if hov or self.variant != "ghost" else "#c9c7d6"))
+        kw = 0
+        if self.kbd:
+            fk = QFont(self.font())
+            fk.setPointSizeF(8.5)
+            kw = QFontMetrics(fk).horizontalAdvance(self.kbd) + 16
+            kr = QRectF(r.right() - kw - 10, r.center().y() - 11, kw, 22)
+            p.setPen(QPen(QColor(DANGER) if self.warn else QColor(255, 255, 255, 34), 1))
+            p.setBrush(QColor(255, 255, 255, 14))
+            p.drawRoundedRect(kr, 6, 6)
+            p.setFont(fk)
+            p.setPen(QColor(DANGER if self.warn else "#d9d7e6"))
+            p.drawText(kr, Qt.AlignCenter, self.kbd)
+            p.setFont(f)
+            p.setPen(QColor(TEXT if hov or self.variant != "ghost" else "#c9c7d6"))
+        p.drawText(QRectF(x, r.top(), r.width() - x - kw - 16, r.height()), Qt.AlignLeft | Qt.AlignVCenter, self.text())
+
+
+class Notice(QLabel):
+    """Короткое уведомление внизу окна (вместо строки состояния). Понимает showMessage/clearMessage."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("notice")
+        self.hide()
+        self.eff = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.eff)
+        self.anim = QPropertyAnimation(self.eff, b"opacity", self)
+        self.anim.setDuration(180)
+        self.anim.finished.connect(lambda: self.eff.opacity() < 0.05 and self.hide())
+        self.timer = QTimer(self, singleShot=True)
+        self.timer.timeout.connect(self._fade_out)
+
+    def showMessage(self, text, ms=0):
+        self.setText(text.replace(" ✓", "").replace("✓ ", ""))
+        self.adjustSize()
+        self.place()
+        self.raise_()
+        if not self.isVisible():
+            self.show()
+            self.anim.stop()
+            self.anim.setStartValue(0.0)
+            self.anim.setEndValue(1.0)
+            self.anim.start()
+        self.timer.start(ms or 4000)
+
+    def clearMessage(self):
+        self._fade_out()
+
+    def _fade_out(self):
+        if not self.isVisible():
+            return
+        self.anim.stop()
+        self.anim.setStartValue(self.eff.opacity())
+        self.anim.setEndValue(0.0)
+        self.anim.start()
+
+    def place(self):
+        p = self.parentWidget()
+        self.move((p.width() - self.width()) // 2, p.height() - self.height() - 22)
+
+
+class Preview(QFrame):
+    """Правая колонка: заголовок, содержимое под тип записи, действия, вкладки и теги."""
+
+    def __init__(self, ctl, win):
+        super().__init__()
+        self.setObjectName("previewCard")
+        self.ctl, self.win = ctl, win
         self.iid = None
         self.row = None
+        self.ocr_for = None
+        self.note_for = None
+        self.tag_edit = None
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 20, 20, 18)
+        lay.setContentsMargins(22, 20, 22, 18)
         lay.setSpacing(12)
 
-        top = QHBoxLayout()
-        self.badge = QLabel()
-        self.badge.setObjectName("badge")
-        self.meta = QLabel()
-        self.meta.setObjectName("muted")
-        top.addWidget(self.badge)
-        top.addWidget(self.meta)
-        top.addStretch()
-        lay.addLayout(top)
-
+        # заголовок
+        head = QHBoxLayout()
+        head.setSpacing(6)
         self.title = QLineEdit()
         self.title.setObjectName("title")
         self.title.setPlaceholderText("Без названия")
-        lay.addWidget(self.title)
+        self.title.editingFinished.connect(self.commit_title)
+        self.pen = set_icon(QToolButton(), "pen", MUTED, 16)
+        self.pen.setObjectName("iconBtn")
+        self.pen.setToolTip("Переименовать")
+        self.pen.setCursor(Qt.PointingHandCursor)
+        self.pen.clicked.connect(lambda: (self.title.setFocus(), self.title.selectAll()))
+        self.title.textChanged.connect(self.fit_title)
+        head.addWidget(self.title)
+        head.addWidget(self.pen)
+        head.addStretch()
+        lay.addLayout(head)
+        meta = QHBoxLayout()
+        meta.setSpacing(8)
+        self.kind_ic = QLabel()
+        self.meta = QLabel()
+        self.meta.setObjectName("muted")
+        self.when = QLabel()
+        self.when.setObjectName("muted")
+        meta.addWidget(self.kind_ic)
+        meta.addWidget(self.meta, 1)
+        meta.addWidget(self.when)
+        lay.addLayout(meta)
 
+        # содержимое
         self.stack = QStackedWidget()
-        self.empty = QLabel("Выберите элемент,\nчтобы увидеть предпросмотр")
+        self.empty = QLabel("Выберите запись слева,\nчтобы увидеть её здесь")
         self.empty.setObjectName("empty")
         self.empty.setAlignment(Qt.AlignCenter)
         self.text = QPlainTextEdit()
-        self.text.setStyleSheet(f"font-family: {MONO}; font-size: 10pt;")
-        self.image = ImageView()
-        self.color = ColorView()
-        for w in (self.empty, self.text, self.image, self.color):
-            self.stack.addWidget(w)
-        lay.addWidget(self.stack, 1)
-
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
-        self.copy_btn = set_icon(QPushButton("  Копировать"), "copy", "#ffffff")
-        self.copy_btn.setObjectName("primary")
-        self.pin_btn = set_icon(QPushButton("  Закрепить"), "pin")
-        self.folder_btn = set_icon(QToolButton(), "folder")
-        self.folder_btn.setText("  В папку")
-        self.folder_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.folder_btn.setPopupMode(QToolButton.InstantPopup)
-        self.folder_menu = QMenu(self)
-        self.folder_menu.aboutToShow.connect(self.build_folder_menu)
-        self.folder_btn.setMenu(self.folder_menu)
-        row1.addWidget(self.copy_btn, 1)
-        row1.addWidget(self.pin_btn)
-        row1.addWidget(self.folder_btn)
-        lay.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        row2.setSpacing(2)
-        self.note_btn = set_icon(QPushButton(" В заметки"), "note")
-        self.open_btn = set_icon(QPushButton(" Открыть"), "external")
-        self.ocr_btn = set_icon(QPushButton(" Текст"), "scan")
-        self.ocr_btn.setToolTip("Распознать текст с картинки")
-        self.up_btn = set_icon(QPushButton(" Загрузить"), "upload")
-        self.save_btn = set_icon(QPushButton("  Сохранить"), "check", "#ffffff")
-        self.save_btn.setObjectName("primary")
-        self.del_btn = set_icon(QPushButton(), "trash")
-        self.del_btn.setToolTip("Удалить  [Del]")
-        self.del_btn.setObjectName("danger")
-        for b in (self.note_btn, self.open_btn, self.ocr_btn, self.up_btn):
-            b.setObjectName("ghost")
-        for b in (self.copy_btn, self.pin_btn, self.folder_btn, self.note_btn, self.open_btn, self.ocr_btn,
-                  self.up_btn, self.save_btn, self.del_btn):
-            b.setCursor(Qt.PointingHandCursor)
-        row2.addWidget(self.note_btn)
-        row2.addWidget(self.open_btn)
-        row2.addWidget(self.ocr_btn)
-        row2.addWidget(self.up_btn)
-        row2.addStretch()
-        row2.addWidget(self.save_btn)
-        row2.addWidget(self.del_btn)
-        lay.addLayout(row2)
-
-        self.copy_btn.clicked.connect(lambda: self.iid and self.ctl.copy_item(self.iid, notify=True))
-        self.pin_btn.clicked.connect(lambda: self.iid and self.ctl.toggle_pin(self.iid))
-        self.note_btn.clicked.connect(lambda: self.iid and self.ctl.toggle_note(self.iid))
-        self.del_btn.clicked.connect(lambda: self.iid and self.ctl.delete_item(self.iid))
-        self.open_btn.clicked.connect(self.open_item)
-        self.ocr_btn.clicked.connect(lambda: self.iid and self.ctl.recognize_text(self.iid))
-        self.up_btn.clicked.connect(self.on_up_btn)
-        self.save_btn.clicked.connect(self.save)
+        self.text.setObjectName("bodyText")
         self.text.textChanged.connect(self.on_edit)
-        self.title.textChanged.connect(self.on_edit)
+        self.image = ImageView(self.zoom, self.fullscreen, self.open_external)
+        self.color = ColorView(self.win.notify)
+        self.link = LinkView()
+        self.files = FilesView()
+        for w in (self.empty, self.text, self.image, self.color, self.link, self.files):
+            self.stack.addWidget(w)
+        lay.addWidget(self.stack, 5)
+
+        # действия
+        acts = QHBoxLayout()
+        acts.setSpacing(8)
+        self.copy_btn = set_icon(QPushButton(" Копировать"), "copy", "#ffffff")
+        self.copy_btn.setObjectName("primary")
+        self.paste_btn = set_icon(QPushButton(" Вставить"), "paste", TEXT)
+        self.save_btn = set_icon(QPushButton(" Сохранить…"), "save", TEXT)
+        self.open_btn = set_icon(QPushButton(" Открыть"), "external", TEXT)
+        self.up_btn = set_icon(QPushButton(" Загрузить"), "upload", TEXT)
+        self.apply_btn = set_icon(QPushButton(" Сохранить изменения"), "check", "#ffffff")
+        self.apply_btn.setObjectName("primary")
+        self.more_btn = set_icon(QPushButton(), "dots", TEXT, 18)
+        self.more_btn.setToolTip("Ещё действия")
+        self.more_btn.setFixedWidth(42)
+        for b in (self.copy_btn, self.paste_btn, self.save_btn, self.open_btn, self.up_btn, self.apply_btn,
+                  self.more_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setMinimumHeight(40)
+            acts.addWidget(b)
+        acts.insertStretch(6, 1)
+        lay.addLayout(acts)
+        self.copy_btn.clicked.connect(lambda: self.iid and self.ctl.copy_item(self.iid, notify=True))
+        self.paste_btn.clicked.connect(lambda: self.iid and self.ctl.paste_from_main(self.iid))
+        self.save_btn.clicked.connect(self.save_as)
+        self.open_btn.clicked.connect(self.open_item)
+        self.up_btn.clicked.connect(self.on_up_btn)
+        self.apply_btn.clicked.connect(self.save)
+        self.more_btn.clicked.connect(lambda: self.iid and self.ctl.item_context_menu(
+            self.iid, self.win, self.more_btn.mapToGlobal(QPoint(0, self.more_btn.height() + 4))))
+
+        # вкладки
+        tabs = QHBoxLayout()
+        tabs.setSpacing(4)
+        self.tab_group = QButtonGroup(self)
+        self.tab_btns = []
+        for i, (ic, name) in enumerate((("info", "Информация"), ("scan", "Текст (OCR)"), ("note", "Заметки"))):
+            b = set_icon(QPushButton(" " + name), ic, MUTED, 16, on=TEXT)
+            b.setObjectName("tabLine")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            self.tab_group.addButton(b, i)
+            self.tab_btns.append(b)
+            tabs.addWidget(b)
+        tabs.addStretch()
+        self.tab_group.idClicked.connect(self.set_tab)
+        tab_line = QFrame()
+        tab_line.setObjectName("hline")
+        tab_line.setFixedHeight(1)
+        tab_col = QVBoxLayout()
+        tab_col.setSpacing(0)
+        tab_col.addLayout(tabs)
+        tab_col.addWidget(tab_line)
+        lay.addLayout(tab_col)
+
+        self.tabs = QStackedWidget()
+        self.tabs.addWidget(self.build_info())
+        self.tabs.addWidget(self.build_ocr())
+        self.tabs.addWidget(self.build_note())
+        lay.addWidget(self.tabs, 3)
+        self.note_timer = QTimer(self, singleShot=True, interval=500)
+        self.note_timer.timeout.connect(self.save_note)
+        self.tab_btns[0].setChecked(True)
         self.show_item(None)
 
-    def on_up_btn(self):
+    # ── вкладка «Информация»
+    def build_info(self):
+        w = QWidget()
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(0, 12, 0, 0)
+        outer.setSpacing(12)
+        row = QHBoxLayout()
+        row.setSpacing(16)
+        self.info_grid = QGridLayout()
+        self.info_grid.setHorizontalSpacing(12)
+        self.info_grid.setVerticalSpacing(8)
+        self.info_grid.setColumnStretch(2, 1)
+        row.addLayout(self.info_grid, 1)
+        self.folder_card = QToolButton()
+        self.folder_card.setObjectName("folderCard")
+        self.folder_card.setFixedSize(176, 118)
+        self.folder_card.setCursor(Qt.PointingHandCursor)
+        self.folder_card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        self.folder_card.setPopupMode(QToolButton.InstantPopup)
+        self.folder_menu = QMenu(self)
+        self.folder_menu.aboutToShow.connect(self.build_folder_menu)
+        self.folder_card.setMenu(self.folder_menu)
+        row.addWidget(self.folder_card, 0, Qt.AlignTop)
+        outer.addLayout(row)
+        self.tags_box = QHBoxLayout()
+        self.tags_box.setSpacing(6)
+        outer.addLayout(self.tags_box)
+        outer.addStretch()
+        return w
+
+    def info_row(self, r, ic, label, value, extra=None):
+        i = QLabel()
+        i.setPixmap(icon(ic, FAINT, size=16).pixmap(QSize(16, 16), self.devicePixelRatioF()))
+        l = QLabel(label)
+        l.setObjectName("muted")
+        v = QLabel(value)
+        v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        v.setWordWrap(True)
+        self.info_grid.addWidget(i, r, 0)
+        self.info_grid.addWidget(l, r, 1)
+        box = QHBoxLayout()
+        box.setSpacing(6)
+        box.addWidget(v, 1)
+        if extra:
+            box.addWidget(extra)
+        self.info_grid.addLayout(box, r, 2)
+
+    def clear_layout(self, lay):
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.widget():
+                w = it.widget()
+                w.hide()  # убрать с экрана сразу, а не после цикла событий
+                w.setParent(None)
+                w.deleteLater()
+            elif it.layout():
+                self.clear_layout(it.layout())
+
+    def fill_info(self, r):
+        self.clear_layout(self.info_grid)
+        kind = r["kind"]
+        rows = []
+        if kind == "image":
+            w, h = image_dims(r)
+            rows += [("image", "Тип", "Изображение (PNG)"), ("expand", "Размер", f"{w} × {h}"),
+                     ("box", "Вес", fmt_size(r["isize"]))]
+        elif kind == "files":
+            ps = file_paths(r)
+            total = sum(file_info(p)[1] or 0 for p in ps)
+            rows += [("file", "Тип", file_info(ps[0])[0] if len(ps) == 1 else f"{len(ps)} "
+                      f"{plural(len(ps), 'файл', 'файла', 'файлов')}"), ("box", "Вес", fmt_size(total) if total else "—")]
+        elif kind == "color":
+            rows += [("drop", "Тип", "Цвет")]
+        elif kind == "link":
+            rows += [("link", "Тип", f"Ссылка • {site_name(r['text'] or '')}")]
+        else:
+            t = r["text"] or ""
+            rows += [("type", "Тип", "Заметка" if r["is_note"] else "Текст"),
+                     ("box", "Длина", f"{char_count(len(t))}, {len(t.splitlines()) or 1} "
+                                      f"{plural(len(t.splitlines()) or 1, 'строка', 'строки', 'строк')}")]
+        rows.append(("calendar", "Создано", full_date(r["created"])))
+        if abs((r["used"] or 0) - (r["created"] or 0)) > 60:
+            rows.append(("clock", "Использовано", full_date(r["used"])))
+        for i, (ic, lab, val) in enumerate(rows):
+            self.info_row(i, ic, lab, val)
+        n = len(rows)
+        path = r["path"] if "path" in r.keys() else None
+        if path:
+            b = set_icon(QToolButton(), "folder", MUTED, 16)
+            b.setObjectName("iconBtn")
+            b.setToolTip("Показать файл в проводнике")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda: reveal_in_explorer(path))
+            short = os.path.join(os.path.basename(os.path.dirname(os.path.dirname(path))),
+                                 os.path.basename(os.path.dirname(path)), "")
+            self.info_row(n, "folder", "Путь", short if os.path.exists(path) else short + " (файл удалён)", b)
+            n += 1
+        if r["url"]:
+            b = set_icon(QToolButton(), "copy", MUTED, 16)
+            b.setObjectName("iconBtn")
+            b.setToolTip("Копировать ссылку")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda: self.ctl.copy_link(self.iid))
+            self.info_row(n, "cloud", "На хостинге", f'<a href="{r["url"]}" style="color:{ACCENT_HI};'
+                                                       f' text-decoration:none">{site_name(r["url"])}</a>', b)
+            lbl = self.info_grid.itemAtPosition(n, 2).layout().itemAt(0).widget()
+            lbl.setOpenExternalLinks(True)
+            lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            lbl.setToolTip(r["url"])
+        # карточка папки
+        names = {f["id"]: f["name"] for f in self.ctl.store.folders()}
+        fname = names.get(r["folder_id"]) if r["folder_id"] else None
+        if kind == "image" and (pm := self.ctl.thumb(r["id"])) is not None:
+            base = pm.toImage().scaled(176 * 2, 84 * 2, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            canvas = QImage(176 * 2, 84 * 2, QImage.Format_ARGB32_Premultiplied)
+            canvas.fill(Qt.transparent)
+            pp = QPainter(canvas)
+            pp.setRenderHint(QPainter.Antialiasing)
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(0, 0, canvas.width(), canvas.height()), 14, 14)
+            pp.setClipPath(clip)
+            pp.drawImage(QPointF((canvas.width() - base.width()) / 2, (canvas.height() - base.height()) / 2), base)
+            pp.fillRect(canvas.rect(), QColor(10, 9, 16, 120))
+            draw_icon(pp, "folder" if fname else "plus", QRectF(canvas.width() / 2 - 22, canvas.height() / 2 - 22, 44, 44),
+                      "#ffffff", 2.2)
+            pp.end()
+            canvas.setDevicePixelRatio(2)
+            self.folder_card.setIcon(QIcon(QPixmap.fromImage(canvas)))
+            self.folder_card.setIconSize(QSize(176 - 16, 84 - 6))
+        else:
+            self.folder_card.setIcon(icon("folder" if fname else "folder_plus", ACCENT_HI, size=28))
+            self.folder_card.setIconSize(QSize(28, 28))
+        self.folder_card.setText(f"Папка: {fname}" if fname else "Добавить в папку")
+        self.folder_card.setToolTip("Переложить в другую папку" if fname else "Положить в папку — "
+                                    "такие записи не удаляются при очистке")
+        self.fill_tags(r)
+
+    def fill_tags(self, r):
+        self.clear_layout(self.tags_box)
+        for t in item_tags(r):
+            chip = QPushButton(t + "  ×")
+            chip.setObjectName("tagChip")
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setToolTip("Убрать тег")
+            chip.clicked.connect(lambda _=False, tag=t: self.remove_tag(tag))
+            self.tags_box.addWidget(chip)
+        self.tag_edit = QLineEdit()
+        self.tag_edit.setObjectName("tagEdit")
+        self.tag_edit.setPlaceholderText("тег и Enter")
+        self.tag_edit.setFixedWidth(130)
+        self.tag_edit.hide()
+        self.tag_edit.returnPressed.connect(self.add_tag)
+        self.tag_edit.editingFinished.connect(lambda: self.tag_edit.text().strip() == "" and self.tag_edit.hide())
+        add = set_icon(QPushButton(" Добавить тег"), "plus", MUTED, 14)
+        add.setObjectName("tagAdd")
+        add.setCursor(Qt.PointingHandCursor)
+        add.clicked.connect(lambda: (self.tag_edit.show(), self.tag_edit.setFocus()))
+        self.tags_box.addWidget(self.tag_edit)
+        self.tags_box.addWidget(add)
+        self.tags_box.addStretch()
+
+    def add_tag(self):
+        t = self.tag_edit.text().strip().replace(",", " ")[:32]
+        if t and self.row:
+            tags = item_tags(self.row)
+            if t.lower() not in (x.lower() for x in tags):
+                tags.append(t)
+                self.ctl.store.update(self.iid, tags=",".join(tags))
+                self.reload()
+        if self.tag_edit:
+            self.tag_edit.clear()
+            self.tag_edit.setFocus()
+
+    def remove_tag(self, tag):
+        if self.row:
+            self.ctl.store.update(self.iid, tags=",".join(t for t in item_tags(self.row) if t != tag) or None)
+            self.reload()
+
+    # ── вкладка «Текст (OCR)»
+    def build_ocr(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 12, 0, 0)
+        lay.setSpacing(8)
+        self.ocr_text = QPlainTextEdit()
+        self.ocr_text.setObjectName("bodyText")
+        self.ocr_text.setPlaceholderText("Здесь появится текст с картинки")
+        self.ocr_state = QLabel()
+        self.ocr_state.setObjectName("muted")
+        self.ocr_state.setWordWrap(True)
+        row = QHBoxLayout()
+        self.ocr_run = set_icon(QPushButton(" Распознать текст"), "scan", "#ffffff")
+        self.ocr_run.setObjectName("primary")
+        self.ocr_copy = set_icon(QPushButton(" Копировать текст"), "copy", TEXT)
+        self.ocr_note = set_icon(QPushButton(" В заметки"), "note", TEXT)
+        for b in (self.ocr_run, self.ocr_copy, self.ocr_note):
+            b.setCursor(Qt.PointingHandCursor)
+            row.addWidget(b)
+        row.addStretch()
+        self.ocr_run.clicked.connect(self.run_ocr)
+        self.ocr_copy.clicked.connect(lambda: (QGuiApplication.clipboard().setText(self.ocr_text.toPlainText()),
+                                               self.win.notify("Текст скопирован")))
+        self.ocr_note.clicked.connect(self.ocr_to_note)
+        lay.addWidget(self.ocr_state)
+        lay.addWidget(self.ocr_text, 1)
+        lay.addLayout(row)
+        return w
+
+    def run_ocr(self):
+        if self.iid:
+            self.ocr_state.setText("Распознаю текст…")
+            self.ocr_run.setEnabled(False)
+            self.ctl.recognize_text(self.iid, inline=True)
+
+    def on_ocr(self, iid, text, err):
+        if iid != self.iid:
+            return
+        self.ocr_run.setEnabled(True)
+        if err:
+            self.ocr_state.setText(f"Не получилось распознать: {err}")
+        elif not text:
+            self.ocr_state.setText("На картинке не найдено текста.")
+        else:
+            self.ocr_state.setText("Готово — текст можно поправить и скопировать.")
+            self.ocr_text.setPlainText(text)
+        self.sync_ocr_buttons()
+
+    def sync_ocr_buttons(self):
+        has = bool(self.ocr_text.toPlainText().strip())
+        self.ocr_copy.setVisible(has)
+        self.ocr_note.setVisible(has)
+        self.ocr_run.setVisible(not has)
+
+    def ocr_to_note(self):
+        t = self.ocr_text.toPlainText()
+        if t.strip() and self.row:
+            self.ctl.store.add("text", t, is_note=1, title=f"Текст с картинки {self.row['text']}")
+            self.ctl.changed.emit()
+            self.win.notify("Добавлено в заметки")
+
+    # ── вкладка «Заметки»
+    def build_note(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 12, 0, 0)
+        self.note = QPlainTextEdit()
+        self.note.setObjectName("bodyText")
+        self.note.setPlaceholderText("Своя заметка к этой записи — сохраняется сама")
+        self.note.textChanged.connect(lambda: self.note_timer.start())
+        lay.addWidget(self.note)
+        return w
+
+    def save_note(self):
+        if self.row is not None and self.note_for == self.iid:
+            self.ctl.store.update(self.iid, note=self.note.toPlainText() or None)
+
+    def set_tab(self, i):
+        self.tabs.setCurrentIndex(i)
+        if i == 1 and self.iid and not self.ocr_text.toPlainText() and self.iid in self.ctl.ocr_cache:
+            self.on_ocr(self.iid, self.ctl.ocr_cache[self.iid], "")
+
+    # ── показ записи
+    def reload(self):
+        iid = self.iid
+        self.iid = None
+        self.show_item(iid)
+
+    def show_item(self, iid):
+        if iid is not None and iid == self.iid and self.apply_btn.isVisible():
+            return  # не затирать несохранённые правки при обновлении списка
+        if self.note_timer.isActive():
+            self.note_timer.stop()
+            self.save_note()
+        self.iid = iid
+        self.row = self.ctl.store.get(iid) if iid else None
+        r = self.row
+        has = r is not None
+        for w in (self.title, self.pen, self.copy_btn, self.paste_btn, self.more_btn, self.tabs):
+            w.setVisible(has)
+        for b in self.tab_btns:
+            b.setVisible(has)
+        self.title.blockSignals(True)
+        self.text.blockSignals(True)
+        self.note.blockSignals(True)
+        self.apply_btn.hide()
+        if not has:
+            self.title.setText("")
+            self.meta.setText("")
+            self.when.setText("")
+            self.kind_ic.clear()
+            self.stack.setCurrentWidget(self.empty)
+            for b in (self.save_btn, self.open_btn, self.up_btn):
+                b.hide()
+        else:
+            kind = r["kind"]
+            k = "note" if r["is_note"] else kind
+            self.kind_ic.setPixmap(icon(KIND_ICON.get(k, "type"), MUTED, size=16).pixmap(
+                QSize(16, 16), self.devicePixelRatioF()))
+            self.title.setText(item_title(r))
+            self.fit_title()
+            self.when.setText(when_label(r["used"]))
+            self.save_btn.setVisible(kind in ("image", "text", "link") )
+            self.open_btn.setVisible(kind in ("link", "files"))
+            self.up_btn.setVisible(kind == "image")
+            self.tab_btns[1].setVisible(kind == "image")
+            if kind == "image":
+                w, h = image_dims(r)
+                self.meta.setText(f"PNG  •  {w} × {h}  •  {fmt_size(r['isize'])}" + ("  •  на хостинге" if r["url"] else ""))
+                self.image.set_pixmap(QPixmap.fromImage(QImage.fromData(r["image"])))
+                self.stack.setCurrentWidget(self.image)
+                self.save_btn.setText(" Сохранить…")
+                self.up_btn.setText(" Ссылка" if r["url"] else " Загружаю…" if r["id"] in self.ctl.uploading
+                                    else " Загрузить")
+                set_icon(self.up_btn, "link" if r["url"] else "upload", TEXT)
+                self.up_btn.setEnabled(r["id"] not in self.ctl.uploading)
+                self.up_btn.setToolTip(("Копировать ссылку: " + r["url"]) if r["url"] else
+                                       "Загрузить на хостинг и скопировать ссылку")
+            elif kind == "color":
+                c = parse_color(r["text"]) or QColor("black")
+                self.meta.setText(f"Цвет  •  {c.name().upper()}")
+                self.color.set_color(c)
+                self.stack.setCurrentWidget(self.color)
+            elif kind == "link":
+                self.meta.setText(f"Ссылка  •  {site_name(r['text'] or '')}")
+                self.link.set_url((r["text"] or "").strip())
+                self.stack.setCurrentWidget(self.link)
+                self.open_btn.setText(" Открыть")
+                set_icon(self.open_btn, "external", TEXT)
+                self.save_btn.hide()
+            elif kind == "files":
+                ps = file_paths(r)
+                self.meta.setText(f"{len(ps)} {plural(len(ps), 'файл', 'файла', 'файлов')}")
+                self.files.set_paths(ps)
+                self.stack.setCurrentWidget(self.files)
+                self.open_btn.setText(" Показать в папке")
+                set_icon(self.open_btn, "folder", TEXT)
+            else:
+                t = r["text"] or ""
+                self.meta.setText(f"{'Заметка' if r['is_note'] else 'Текст'}  •  {char_count(len(t))}")
+                self.text.setPlainText(t)
+                self.stack.setCurrentWidget(self.text)
+                self.save_btn.setText(" Сохранить…")
+            set_icon(self.save_btn, "save", TEXT)
+            self.note.setPlainText(r["note"] or "")
+            self.note_for = iid
+            self.fill_info(r)
+            if self.iid != self.ocr_for:
+                self.ocr_for = self.iid
+                self.ocr_text.clear()
+                self.ocr_state.setText("Kipshot распознаёт русский и английский текст прямо на компьютере.")
+                if self.iid in self.ctl.ocr_cache:
+                    self.on_ocr(self.iid, self.ctl.ocr_cache[self.iid], "")
+                self.ocr_run.setEnabled(self.iid not in self.ctl.ocr_running)
+                self.sync_ocr_buttons()
+            if self.tabs.currentIndex() == 1 and kind != "image":
+                self.tab_btns[0].setChecked(True)
+                self.tabs.setCurrentIndex(0)
+            self.paste_btn.setToolTip(self.ctl.paste_target_hint())
+        self.title.blockSignals(False)
+        self.text.blockSignals(False)
+        self.note.blockSignals(False)
+
+    def fit_title(self):
+        """Поле названия по ширине текста — карандаш стоит сразу за ним, как подпись."""
+        f = QFont(self.title.font())
+        f.setPointSizeF(16)  # как в стиле QLineEdit#title — до первой отрисовки font() ещё обычный
+        f.setWeight(QFont.DemiBold)
+        text = self.title.text() or self.title.placeholderText()
+        avail = max(120, self.width() - 44 - 60)
+        self.title.setFixedWidth(min(avail, QFontMetrics(f).horizontalAdvance(text) + 30))
+        if not self.title.hasFocus():
+            self.title.setCursorPosition(0)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.fit_title()
+
+    def on_edit(self):
+        if self.row:
+            self.apply_btn.show()
+
+    def commit_title(self):
+        if self.row and self.title.text().strip() != item_title(self.row):
+            new = self.title.text().strip() or None
+            self.ctl.store.update(self.iid, title=new)
+            self.ctl.changed.emit()
+
+    def save(self):
         if not self.row:
             return
-        if self.row["url"]:
-            self.ctl.copy_link(self.iid)
-        else:
-            self.ctl.upload_item(self.iid)
+        text = self.text.toPlainText() if self.stack.currentWidget() is self.text else None
+        self.apply_btn.hide()
+        self.ctl.save_item(self.iid, self.title.text().strip() or None, text)
+
+    def on_up_btn(self):
+        if self.row:
+            if self.row["url"]:
+                self.ctl.copy_link(self.iid)
+            else:
+                self.ctl.upload_item(self.iid)
 
     def build_folder_menu(self):
         m = self.folder_menu
@@ -1299,80 +2255,53 @@ class Preview(QWidget):
         if fid:
             self.ctl.set_folder(self.iid, fid)
 
-    def show_item(self, iid):
-        if iid is not None and iid == self.iid and self.save_btn.isVisible():
-            return  # не затирать несохранённые правки при обновлении списка
-        self.iid = iid
-        self.row = self.ctl.store.get(iid) if iid else None
+    def image_obj(self):
+        return QImage.fromData(self.row["image"]) if self.row and self.row["kind"] == "image" else None
+
+    def zoom(self):
+        img = self.image_obj()
+        if img is not None and not img.isNull():
+            v = ImageViewer(img, item_title(self.row), self.win)
+            v.show()
+            return v
+
+    def fullscreen(self):
+        v = self.zoom()
+        if v:
+            v.showFullScreen()
+
+    def open_external(self):
         r = self.row
-        has = r is not None
-        for w in (self.copy_btn, self.pin_btn, self.folder_btn, self.note_btn, self.del_btn, self.title):
-            w.setEnabled(has)
-        self.title.blockSignals(True)
-        self.text.blockSignals(True)
-        if not has:
-            self.badge.hide()
-            self.meta.setText("")
-            self.title.setText("")
-            self.stack.setCurrentWidget(self.empty)
-            self.open_btn.hide()
-            self.ocr_btn.hide()
-            self.up_btn.hide()
-            self.save_btn.hide()
-        else:
-            self.badge.show()
-            self.badge.setText("Заметка" if r["is_note"] else KIND_LABEL.get(r["kind"], r["kind"]))
-            meta = [f"создано {reltime(r['created'])}"]
-            if r["folder_id"]:
-                names = {f["id"]: f["name"] for f in self.ctl.store.folders()}
-                meta.append("📁 " + names.get(r["folder_id"], ""))
-            self.meta.setText(" · ".join(meta))
-            self.title.setText(r["title"] or "")
-            self.pin_btn.setText("  Открепить" if r["pinned"] else "  Закрепить")
-            set_icon(self.pin_btn, "unpin" if r["pinned"] else "pin")
-            self.note_btn.setText(" Из заметок" if r["is_note"] else " В заметки")
-            self.note_btn.setVisible(r["kind"] != "image" or bool(r["is_note"]))
-            kind = r["kind"]
-            self.ocr_btn.setVisible(kind == "image")
-            self.up_btn.setVisible(kind == "image")
-            self.up_btn.setText(" Ссылка" if r["url"] else
-                               " Загружаю…" if r["id"] in self.ctl.uploading else " Загрузить")
-            set_icon(self.up_btn, "link" if r["url"] else "upload")
-            self.up_btn.setEnabled(r["id"] not in self.ctl.uploading)
-            self.up_btn.setToolTip(r["url"] or "Залить на хостинг и скопировать ссылку")
-            if kind == "image":
-                img = QImage.fromData(r["image"])
-                self.image.set_pixmap(QPixmap.fromImage(img))
-                self.stack.setCurrentWidget(self.image)
-                self.meta.setText(self.meta.text() + f" · {r['text']} · {(r['isize'] or 0) // 1024} КБ"
-                                  + (" · загружено" if r["url"] else ""))
-                self.open_btn.setText(" Сохранить как…")
-                set_icon(self.open_btn, "save")
-                self.open_btn.show()
-            elif kind == "color":
-                self.color.set_color(parse_color(r["text"]) or QColor("black"))
-                self.stack.setCurrentWidget(self.color)
-                self.open_btn.hide()
-            else:
-                self.text.setPlainText(r["text"] or "")
-                self.text.setReadOnly(kind == "files")
-                self.stack.setCurrentWidget(self.text)
-                self.open_btn.setText({"link": " Открыть ссылку", "files": " Показать в папке"}.get(kind, ""))
-                set_icon(self.open_btn, "external" if kind == "link" else "folder")
-                self.open_btn.setVisible(kind in ("link", "files"))
-            self.save_btn.hide()
-        self.title.blockSignals(False)
-        self.text.blockSignals(False)
-
-    def on_edit(self):
-        if self.row:
-            self.save_btn.show()
-
-    def save(self):
-        if not self.row:
+        if not r:
             return
-        text = self.text.toPlainText() if self.stack.currentWidget() is self.text else None
-        self.ctl.save_item(self.iid, self.title.text().strip() or None, text)
+        path = r["path"] if "path" in r.keys() else None
+        if not path or not os.path.exists(path):
+            path = os.path.join(tempfile.gettempdir(), f"{APP}_{r['id']}.png")
+            with open(path, "wb") as f:
+                f.write(r["image"])
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def save_as(self):
+        r = self.row
+        if not r:
+            return
+        if r["kind"] == "image":
+            name = os.path.basename(r["path"]) if r["path"] else "clip.png"
+            path, _ = QFileDialog.getSaveFileName(self, "Сохранить картинку", os.path.join(
+                QStandardPaths.writableLocation(QStandardPaths.PicturesLocation), name), "PNG (*.png)")
+            if path:
+                with open(path, "wb") as f:
+                    f.write(r["image"])
+                self.win.notify("Картинка сохранена")
+        else:
+            base = re.sub(r'[\\/:*?"<>|\n\r]+', " ", item_title(r))[:60].strip() or "текст"
+            path, _ = QFileDialog.getSaveFileName(self, "Сохранить текст", os.path.join(
+                QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation), base + ".txt"),
+                "Текст (*.txt);;Все файлы (*)")
+            if path:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(r["text"] or "")
+                self.win.notify("Текст сохранён")
 
     def open_item(self):
         r = self.row
@@ -1384,86 +2313,299 @@ class Preview(QWidget):
                 url = "https://" + url
             QDesktopServices.openUrl(QUrl(url))
         elif r["kind"] == "files":
-            first = next((p for p in r["text"].splitlines() if p), "")
-            folder = first if os.path.isdir(first) else os.path.dirname(first)
-            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
-        elif r["kind"] == "image":
-            path, _ = QFileDialog.getSaveFileName(self, "Сохранить картинку",
-                                                  os.path.join(os.path.expanduser("~"), "clip.png"),
-                                                  "PNG (*.png)")
-            if path:
-                with open(path, "wb") as f:
-                    f.write(r["image"])
+            ps = file_paths(r)
+            if ps:
+                reveal_in_explorer(ps[0])
+
+
+def reveal_in_explorer(path):
+    if IS_WIN and os.path.exists(path):
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+    else:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
 
 # ───────────────────────────── Главное окно ─────────────────────────────
 FIXED_VIEWS = [
     ("История", ("all",), "clock"),
     ("Закреплённые", ("pinned",), "pin"),
-    ("Мои заметки", ("notes",), "note"),
+    ("Заметки", ("notes",), "note"),
     ("Картинки", ("images",), "image"),
     ("Ссылки", ("links",), "link"),
+    ("Файлы", ("files",), "file"),
+    ("Цвета", ("colors",), "drop"),
     ("Загруженные", ("uploads",), "cloud"),
 ]
-SIDE_ICON, SIDE_COUNT, SIDE_HDR = Qt.UserRole + 2, Qt.UserRole + 3, Qt.UserRole + 4
+KIND_CHIPS = [("Все", None, None), ("Текст", "text", "type"), ("Картинки", "image", "image"),
+              ("Ссылки", "link", "link"), ("Файлы", "files", "file"), ("Цвета", "color", "drop")]
+VIEW_KIND = {"images": "image", "links": "link", "files": "files", "colors": "color"}
+SIDE_ICON, SIDE_COUNT = Qt.UserRole + 2, Qt.UserRole + 3
+HDR = Qt.UserRole + 5  # строка-заголовок группы: (ключ, подпись, число, свёрнута)
 
 
 class SideDelegate(QStyledItemDelegate):
-    """Пункт боковой панели: иконка, название, счётчик справа."""
+    """Пункт боковой панели: иконка, название, счётчик; выбранный — фиолетовая плашка."""
 
     def sizeHint(self, option, index):
-        return QSize(150, 32 if index.data(SIDE_HDR) else 34)
+        return QSize(150, 42)
 
     def paint(self, p, opt, index):
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
-        r = QRectF(opt.rect)
+        r = QRectF(opt.rect).adjusted(0.5, 2.5, -0.5, -2.5)
         text = index.data(Qt.DisplayRole) or ""
-        if index.data(SIDE_HDR):
-            f = QFont(opt.font)
-            f.setPointSizeF(7.5)
-            f.setBold(True)
-            f.setLetterSpacing(QFont.AbsoluteSpacing, 0.8)
-            p.setFont(f)
-            p.setPen(QColor(FAINT))
-            p.drawText(r.adjusted(12, 0, -8, -5), Qt.AlignLeft | Qt.AlignBottom, text)
-            p.restore()
-            return
         enabled = bool(index.flags() & Qt.ItemIsEnabled)
         sel = bool(opt.state & QStyle.StateFlag.State_Selected)
         hov = bool(opt.state & QStyle.StateFlag.State_MouseOver) and enabled
-        rr = r.adjusted(0, 1, 0, -1)
-        path = QPainterPath()
-        path.addRoundedRect(rr, 8, 8)
         if sel:
-            p.fillPath(path, QColor(255, 255, 255, 15))
+            g = QLinearGradient(r.topLeft(), r.topRight())
+            g.setColorAt(0, QColor(116, 78, 236, 200))
+            g.setColorAt(1, QColor(92, 62, 200, 150))
+            p.setPen(QPen(QColor(160, 130, 255, 170), 1))
+            p.setBrush(g)
+            p.drawRoundedRect(r, 10, 10)
         elif hov:
-            p.fillPath(path, QColor(255, 255, 255, 8))
-        x = rr.left() + 12
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, 12))
+            p.drawRoundedRect(r, 10, 10)
+        x = r.left() + 14
         ic = index.data(SIDE_ICON)
         if ic:
-            draw_icon(p, ic, QRectF(x, rr.center().y() - 8, 16, 16), ACCENT_HI if sel else MUTED)
-            x += 27
+            draw_icon(p, ic, QRectF(x, r.center().y() - 9, 18, 18), "#ffffff" if sel else "#b9b6c9")
+            x += 32
         cnt = index.data(SIDE_COUNT)
         ctext = str(cnt) if cnt else ""
         f2 = QFont(opt.font)
         f2.setPointSizeF(8.5)
-        cw = QFontMetrics(f2).horizontalAdvance(ctext)
+        cw = QFontMetrics(f2).horizontalAdvance(ctext) + (14 if ctext else 0)
         f = QFont(opt.font)
-        f.setPointSizeF(9.5)
+        f.setPointSizeF(10.5)
         if sel:
             f.setWeight(QFont.Medium)
         fm = QFontMetrics(f)
-        tw = rr.right() - x - cw - 18
+        tw = r.right() - x - cw - 14
         p.setFont(f)
-        p.setPen(QColor(TEXT if sel else "#c4c5cf" if enabled else FAINT))
-        p.drawText(QRectF(x, rr.top(), tw, rr.height()), Qt.AlignLeft | Qt.AlignVCenter,
+        p.setPen(QColor("#ffffff" if sel else "#d6d4e2" if enabled else FAINT))
+        p.drawText(QRectF(x, r.top(), tw, r.height()), Qt.AlignLeft | Qt.AlignVCenter,
                    fm.elidedText(text, Qt.ElideRight, int(tw)))
         if ctext:
+            cr = QRectF(r.right() - cw - 8, r.center().y() - 10, cw, 20)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, 40 if sel else 14))
+            p.drawRoundedRect(cr, 7, 7)
             p.setFont(f2)
-            p.setPen(QColor(MUTED if sel else FAINT))
-            p.drawText(QRectF(rr.right() - cw - 12, rr.top(), cw, rr.height()), Qt.AlignRight | Qt.AlignVCenter, ctext)
+            p.setPen(QColor("#ffffff" if sel else MUTED))
+            p.drawText(cr, Qt.AlignCenter, ctext)
         p.restore()
+
+
+class RowDelegate(QStyledItemDelegate):
+    """Строка истории: превью, название, детали, время и кнопки действий у выбранной/наведённой строки.
+    В режиме плитки рисует карточку с крупным превью."""
+    ACTIONS = [("copy", "Копировать"), ("pin", "Закрепить"), ("folder", "В папку"), ("dots", "Ещё")]
+
+    def __init__(self, win):
+        super().__init__(win.list)
+        self.win = win
+        self.ctl = win.ctl
+        self.mouse = QPoint(-1, -1)
+        self.tile_w = 176
+
+    def grid(self):
+        return self.win.list.viewMode() == QListView.IconMode
+
+    def sizeHint(self, option, index):
+        if index.data(HDR):
+            return QSize(200, 40)
+        if self.grid():
+            return QSize(self.tile_w, 168)
+        return QSize(200, 80)
+
+    def action_rects(self, rect):
+        r = QRectF(rect).adjusted(2, 4, -8, -4)
+        out, x = [], r.right() - 12
+        for name, _tip in reversed(self.ACTIONS):
+            x -= 32
+            out.insert(0, (name, QRectF(x, r.bottom() - 40, 32, 30)))
+            x -= 6
+        return out
+
+    def paint(self, p, opt, index):
+        hdr = index.data(HDR)
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        if hdr:
+            self.paint_header(p, opt, hdr)
+        else:
+            d = index.data(ROLE)
+            if d:
+                (self.paint_tile if self.grid() else self.paint_row)(p, opt, d)
+        p.restore()
+
+    def paint_header(self, p, opt, hdr):
+        _key, label, n, collapsed = hdr
+        r = QRectF(opt.rect)
+        draw_icon(p, "chev_right" if collapsed else "chev_down", QRectF(r.left() + 4, r.center().y() - 7, 14, 14), MUTED, 2)
+        f = QFont(opt.font)
+        f.setPointSizeF(10.5)
+        f.setWeight(QFont.DemiBold)
+        p.setFont(f)
+        p.setPen(QColor(TEXT))
+        tw = QFontMetrics(f).horizontalAdvance(label)
+        p.drawText(QRectF(r.left() + 26, r.top(), tw + 4, r.height()), Qt.AlignLeft | Qt.AlignVCenter, label)
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(8.5)
+        s = str(n)
+        cw = QFontMetrics(f2).horizontalAdvance(s) + 14
+        cr = QRectF(r.left() + 36 + tw, r.center().y() - 10, cw, 20)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 16))
+        p.drawRoundedRect(cr, 7, 7)
+        p.setFont(f2)
+        p.setPen(QColor(MUTED))
+        p.drawText(cr, Qt.AlignCenter, s)
+
+    def card(self, p, r, sel, hov):
+        path = QPainterPath()
+        path.addRoundedRect(r, 11, 11)
+        if sel:
+            g = QLinearGradient(r.topLeft(), r.bottomRight())
+            g.setColorAt(0, QColor(70, 46, 150, 150))
+            g.setColorAt(1, QColor(44, 32, 92, 150))
+            p.fillPath(path, g)
+            p.setPen(QPen(QColor(150, 115, 255, 230), 1.4))
+        else:
+            p.fillPath(path, QColor(255, 255, 255, 13 if hov else 7))
+            p.setPen(QPen(QColor(255, 255, 255, 22 if hov else 12), 1))
+        p.drawPath(path)
+
+    def meta_text(self, d):
+        kind = d["kind"]
+        if kind == "image":
+            w, h = image_dims(d)
+            return f"{w} × {h}  •  PNG  •  {fmt_size(d['isize'])}" + ("  •  на хостинге" if d["url"] else "")
+        return item_meta(d, False)
+
+    def paint_row(self, p, opt, d):
+        r = QRectF(opt.rect).adjusted(2, 4, -8, -4)
+        sel = bool(opt.state & QStyle.StateFlag.State_Selected)
+        hov = bool(opt.state & QStyle.StateFlag.State_MouseOver)
+        self.card(p, r, sel, hov)
+        s = r.height() - 22
+        ir = QRectF(r.left() + 11, r.center().y() - s / 2, s * (1.45 if d["kind"] == "image" else 1), s)
+        draw_item_icon(p, self.ctl, d, ir, 9)
+        f1 = QFont(opt.font)
+        f1.setPointSizeF(10.5)
+        f1.setWeight(QFont.Medium)
+        fm1 = QFontMetrics(f1)
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(9)
+        fm2 = QFontMetrics(f2)
+        when = datetime.datetime.fromtimestamp(d["used"] or 0).strftime("%H:%M")
+        ww = fm2.horizontalAdvance(when) + 2
+        tx = ir.right() + 14
+        top = r.center().y() - (fm1.height() + fm2.height() + 5) / 2
+        show_actions = sel or hov
+        acts_w = 4 * 38 + 6 if show_actions else 0
+        tw = r.right() - tx - ww - 22
+        p.setFont(f1)
+        p.setPen(QColor(TEXT))
+        p.drawText(QRectF(tx, top, tw, fm1.height()), Qt.AlignLeft | Qt.AlignVCenter,
+                   fm1.elidedText(item_title(d), Qt.ElideRight, int(tw)))
+        mw = r.right() - tx - 14 - acts_w
+        p.setFont(f2)
+        p.setPen(QColor(MUTED))
+        p.drawText(QRectF(tx, top + fm1.height() + 5, mw, fm2.height()), Qt.AlignLeft | Qt.AlignVCenter,
+                   fm2.elidedText(self.meta_text(d), Qt.ElideRight, int(max(mw, 10))))
+        p.setPen(QColor(MUTED))
+        p.drawText(QRectF(r.right() - ww - 12, top, ww, fm1.height()), Qt.AlignRight | Qt.AlignVCenter, when)
+        if show_actions:
+            for name, ar in self.action_rects(opt.rect):
+                on = ar.contains(QPointF(self.mouse))
+                p.setPen(QPen(QColor(255, 255, 255, 50 if on else 26), 1))
+                p.setBrush(QColor(255, 255, 255, 30 if on else 12))
+                p.drawRoundedRect(ar, 8, 8)
+                ic = "unpin" if name == "pin" and d["pinned"] else name
+                draw_icon(p, ic, QRectF(ar.center().x() - 8, ar.center().y() - 8, 16, 16),
+                          PIN if name == "pin" and d["pinned"] else "#e6e4f0")
+        elif d["pinned"]:
+            draw_icon(p, "pin", QRectF(r.right() - 26, top + fm1.height() + 5 + (fm2.height() - 14) / 2, 14, 14), PIN)
+
+    def paint_tile(self, p, opt, d):
+        r = QRectF(opt.rect).adjusted(4, 4, -4, -4)
+        sel = bool(opt.state & QStyle.StateFlag.State_Selected)
+        hov = bool(opt.state & QStyle.StateFlag.State_MouseOver)
+        self.card(p, r, sel, hov)
+        ir = QRectF(r.left() + 8, r.top() + 8, r.width() - 16, r.height() - 64)
+        if d["kind"] in ("image", "color"):
+            draw_item_icon(p, self.ctl, d, ir, 8)
+        else:
+            path = QPainterPath()
+            path.addRoundedRect(ir, 8, 8)
+            k = "note" if d["is_note"] else d["kind"]
+            c = QColor(KIND_COLOR.get(k, MUTED))
+            bg = QColor(c)
+            bg.setAlpha(26)
+            p.fillPath(path, bg)
+            if d["kind"] in ("text",) and (d["text"] or "").strip():
+                f = QFont(opt.font)
+                f.setPointSizeF(8.5)
+                p.setFont(f)
+                p.setPen(QColor("#cfcde0"))
+                p.drawText(ir.adjusted(10, 8, -10, -8), Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+                           (d["text"] or "")[:220])
+            else:
+                draw_icon(p, KIND_ICON.get(k, "type"), QRectF(ir.center().x() - 16, ir.center().y() - 16, 32, 32),
+                          c.name(), 1.8)
+        f1 = QFont(opt.font)
+        f1.setPointSizeF(9.5)
+        f1.setWeight(QFont.Medium)
+        fm1 = QFontMetrics(f1)
+        p.setFont(f1)
+        p.setPen(QColor(TEXT))
+        tr = QRectF(r.left() + 10, ir.bottom() + 8, r.width() - 20, fm1.height())
+        p.drawText(tr, Qt.AlignLeft | Qt.AlignVCenter, fm1.elidedText(item_title(d), Qt.ElideRight, int(tr.width())))
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(8.5)
+        fm2 = QFontMetrics(f2)
+        p.setFont(f2)
+        p.setPen(QColor(MUTED))
+        mr = QRectF(r.left() + 10, tr.bottom() + 3, r.width() - 20, fm2.height())
+        meta = datetime.datetime.fromtimestamp(d["used"] or 0).strftime("%H:%M") + "  •  " + self.meta_text(d)
+        p.drawText(mr, Qt.AlignLeft | Qt.AlignVCenter, fm2.elidedText(meta, Qt.ElideRight, int(mr.width())))
+        if d["pinned"]:
+            draw_icon(p, "pin", QRectF(ir.right() - 22, ir.top() + 6, 16, 16), PIN)
+
+    def editorEvent(self, ev, model, opt, index):
+        if index.data(HDR) or self.grid():
+            return False
+        if ev.type() == QEvent.MouseButtonRelease and ev.button() == Qt.LeftButton:
+            pos = ev.position()
+            for name, ar in self.action_rects(opt.rect):
+                if ar.contains(pos):
+                    d = index.data(ROLE)
+                    self.win.row_action(d["id"], name, self.win.list.viewport().mapToGlobal(ar.bottomLeft().toPoint()))
+                    return True
+        if ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+            pos = ev.position()
+            if any(ar.contains(pos) for _n, ar in self.action_rects(opt.rect)) and \
+                    (opt.state & QStyle.StateFlag.State_Selected or opt.state & QStyle.StateFlag.State_MouseOver):
+                return True
+        return False
+
+    def helpEvent(self, ev, view, opt, index):
+        if not index.data(HDR) and not self.grid():
+            for name, ar in self.action_rects(opt.rect):
+                if ar.contains(QPointF(ev.pos())):
+                    d = index.data(ROLE)
+                    tip = dict(self.ACTIONS)[name]
+                    if name == "pin" and d and d["pinned"]:
+                        tip = "Открепить"
+                    QToolTip.showText(ev.globalPos(), tip, view)
+                    return True
+        QToolTip.hideText()
+        return True
 
 
 class MainWindow(QMainWindow):
@@ -1472,216 +2614,677 @@ class MainWindow(QMainWindow):
         self.ctl = ctl
         self.setWindowTitle(APP)
         self.setWindowIcon(ctl.icon)
-        self.resize(1120, 700)
+        self.setMinimumSize(1060, 660)
+        g = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(min(1500, int(g.width() * 0.86)), min(940, int(g.height() * 0.88)))
         self.view = ("all",)
+        self.kind = None
+        self.collapsed = set()
+        self.sort_old = self.ctl.store.get_setting("sort_old", "0") == "1"
+        self.period = self.ctl.store.get_setting("period", "all")
+        self.grid_mode = self.ctl.store.get_setting("grid_mode", "0") == "1"
 
+        root = QWidget()
+        root.setObjectName("root")
+        self.setCentralWidget(root)
+        rl = QHBoxLayout(root)
+        rl.setContentsMargins(14, 10, 14, 14)
+        rl.setSpacing(0)
         split = QSplitter()
-        split.setHandleWidth(1)
-        self.setCentralWidget(split)
+        split.setHandleWidth(14)
+        split.setChildrenCollapsible(False)
+        rl.addWidget(split)
+        split.addWidget(self.make_side())
+        split.addWidget(self.build_center())
+        self.preview = Preview(ctl, self)
+        self.preview.setMinimumWidth(440)
+        split.addWidget(self.preview)
+        split.setStretchFactor(1, 1)
+        split.setStretchFactor(2, 1)
+        w = self.width() - 28
+        split.setSizes([268, int((w - 268) * 0.47), int((w - 268) * 0.53)])
+        self.notice = Notice(root)
 
-        # ── боковая панель
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: (self.search.setFocus(), self.search.selectAll()))
+        QShortcut(QKeySequence(Qt.Key_Delete), self.list, activated=self.delete_current)
+        QShortcut(QKeySequence("Ctrl+P"), self, activated=lambda: self.cur_id() and self.ctl.toggle_pin(self.cur_id()))
+        QShortcut(QKeySequence(Qt.Key_Return), self.list,
+                  activated=lambda: self.cur_id() and self.ctl.copy_item(self.cur_id(), notify=True))
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.new_note)
+        QShortcut(QKeySequence(Qt.Key_Escape), self.search, activated=lambda: self.search.clear())
+
+        self.build_folders()
+        self.select_view(self.view)
+        self.apply_grid()
+        self.refresh()
+        style_window(self)
+
+    # уведомления (Controller пишет в statusBar(), как раньше)
+    def statusBar(self):
+        return self.notice
+
+    def notify(self, text, ms=2200):
+        self.notice.showMessage(text, ms)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.notice.isVisible():
+            self.notice.place()
+
+    # ── левая колонка
+    def make_side(self):
         side = QWidget()
         side.setObjectName("side")
-        side.setAttribute(Qt.WA_StyledBackground)
+        side.setMinimumWidth(236)
+        side.setMaximumWidth(330)
         sl = QVBoxLayout(side)
-        sl.setContentsMargins(10, 18, 10, 12)
-        sl.setSpacing(2)
+        sl.setContentsMargins(6, 14, 6, 6)
+        sl.setSpacing(4)
         brand = QHBoxLayout()
-        brand.setContentsMargins(8, 0, 0, 14)
-        brand.setSpacing(10)
-        mark = QLabel()
-        mark.setPixmap(ctl.icon.pixmap(QSize(26, 26), self.devicePixelRatioF()))
-        logo = QLabel(APP)
-        logo.setObjectName("logo")
-        brand.addWidget(mark)
+        brand.setContentsMargins(8, 0, 0, 16)
+        brand.setSpacing(12)
+        logo = QLabel()
+        logo.setFixedSize(44, 44)
+        logo.setPixmap(self.logo_pixmap(44))
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        t = QLabel(APP)
+        t.setObjectName("brand")
+        sub = QLabel("Буфер обмена и скриншоты")
+        sub.setObjectName("hint")
+        names.addWidget(t)
+        names.addWidget(sub)
         brand.addWidget(logo)
-        brand.addStretch()
+        brand.addLayout(names, 1)
         sl.addLayout(brand)
+
         self.side = QListWidget()
         self.side.setObjectName("sideList")
         self.side.setItemDelegate(SideDelegate(self.side))
         self.side.setMouseTracking(True)
+        self.side.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.side.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.side.currentItemChanged.connect(self.on_view_changed)
-        self.side.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.side.customContextMenuRequested.connect(self.side_menu)
-        sl.addWidget(self.side, 1)
-        shot = set_icon(QPushButton("   Скриншот"), "shot")
-        shot.clicked.connect(lambda: QTimer.singleShot(250, self.ctl.take_screenshot))  # дать кнопке отрисоваться
-        add_folder = set_icon(QPushButton("   Новая папка"), "folder_plus")
-        add_folder.clicked.connect(lambda: self.ctl.ask_new_folder(self))
-        settings = set_icon(QPushButton("   Настройки"), "settings")
-        settings.clicked.connect(self.ctl.open_settings)
-        for b in (shot, add_folder, settings):
-            b.setObjectName("flat")
-            b.setCursor(Qt.PointingHandCursor)
-            sl.addWidget(b)
-        self.hotkey_hint = QLabel()
-        self.hotkey_hint.setObjectName("hint")
-        self.hotkey_hint.setWordWrap(True)
-        self.hotkey_hint.setContentsMargins(10, 8, 6, 0)
-        sl.addWidget(self.hotkey_hint)
-
-        # ── список
-        center = QWidget()
-        center.setObjectName("center")
-        center.setAttribute(Qt.WA_StyledBackground)
-        cl = QVBoxLayout(center)
-        cl.setContentsMargins(14, 16, 14, 10)
-        cl.setSpacing(10)
-        top = QHBoxLayout()
-        top.setSpacing(8)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Поиск…   Ctrl+F")
-        self.search.addAction(icon("search", FAINT), QLineEdit.LeadingPosition)
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(lambda: self.search_timer.start())
-        self.search_timer = QTimer(self, singleShot=True, interval=150)
-        self.search_timer.timeout.connect(self.refresh)
-        new_note = set_icon(QPushButton(" Заметка"), "plus", "#ffffff")
-        new_note.setObjectName("primary")
-        new_note.setCursor(Qt.PointingHandCursor)
-        new_note.clicked.connect(self.new_note)
-        clear_btn = set_icon(QPushButton(), "trash")
-        clear_btn.setObjectName("danger")
-        clear_btn.setCursor(Qt.PointingHandCursor)
-        clear_btn.setToolTip("Очистить историю (закреплённое, заметки и папки останутся)")
-        clear_btn.clicked.connect(lambda: self.ctl.clear_history(self))
-        top.addWidget(self.search, 1)
-        top.addWidget(new_note)
-        top.addWidget(clear_btn)
-        cl.addLayout(top)
-        self.list = QListWidget()
-        self.list.setItemDelegate(ItemDelegate(ctl, 64, self.list))
-        self.list.setMouseTracking(True)
-        self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.list.setUniformItemSizes(True)
-        self.list.currentItemChanged.connect(self.on_item_changed)
-        self.list.itemDoubleClicked.connect(lambda it: self.ctl.copy_item(it.data(Qt.UserRole), notify=True))
-        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.list.customContextMenuRequested.connect(self.item_menu)
-        cl.addWidget(self.list, 1)
-        self.count = QLabel()
-        self.count.setObjectName("hint")
-        cl.addWidget(self.count)
-
-        # ── предпросмотр
-        self.preview = Preview(ctl)
-
-        split.addWidget(side)
-        split.addWidget(center)
-        split.addWidget(self.preview)
-        split.setSizes([220, 430, 470])
-        split.setCollapsible(1, False)
-
-        QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: (self.search.setFocus(), self.search.selectAll()))
-        QShortcut(QKeySequence(Qt.Key_Delete), self.list, activated=self.delete_current)
-        QShortcut(QKeySequence("Ctrl+P"), self, activated=lambda: current_id(self.list) and
-                  self.ctl.toggle_pin(current_id(self.list)))
-        QShortcut(QKeySequence(Qt.Key_Return), self.list,
-                  activated=lambda: current_id(self.list) and self.ctl.copy_item(current_id(self.list), notify=True))
-        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.new_note)
-
-        self.build_side()
-        self.refresh()
-        style_window(self)
-
-    # боковая панель
-    def build_side(self):
-        cur = self.view
-        self.side.blockSignals(True)
-        self.side.clear()
-        target = None
         for label, view, ic in FIXED_VIEWS:
             it = QListWidgetItem(label)
             it.setData(Qt.UserRole, view)
             it.setData(SIDE_ICON, ic)
             self.side.addItem(it)
-            if view == cur:
-                target = it
-        folders = self.ctl.store.folders()
-        hdr = QListWidgetItem("ПАПКИ")
-        hdr.setFlags(Qt.NoItemFlags)
-        hdr.setData(SIDE_HDR, True)
-        self.side.addItem(hdr)
-        if not folders:
-            e = QListWidgetItem("Пока нет папок")
-            e.setFlags(Qt.NoItemFlags)
-            self.side.addItem(e)
-        for fo in folders:
+        self.side.setFixedHeight(len(FIXED_VIEWS) * 42 + 4)
+        self.side.currentItemChanged.connect(self.on_view_changed)
+        sl.addWidget(self.side)
+        line = QFrame()
+        line.setObjectName("hline")
+        line.setFixedHeight(1)
+        sl.addSpacing(8)
+        sl.addWidget(line)
+        sl.addSpacing(6)
+        fh = QHBoxLayout()
+        fh.setContentsMargins(14, 0, 4, 0)
+        fl = QLabel("Папки")
+        fl.setObjectName("sectionTitle")
+        add = set_icon(QToolButton(), "plus", MUTED, 16)
+        add.setObjectName("iconBtn")
+        add.setToolTip("Новая папка")
+        add.setCursor(Qt.PointingHandCursor)
+        add.clicked.connect(lambda: self.ctl.ask_new_folder(self))
+        fh.addWidget(fl, 1)
+        fh.addWidget(add)
+        sl.addLayout(fh)
+        self.folders = QListWidget()
+        self.folders.setObjectName("sideList")
+        self.folders.setItemDelegate(SideDelegate(self.folders))
+        self.folders.setMouseTracking(True)
+        self.folders.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.folders.currentItemChanged.connect(self.on_view_changed)
+        self.folders.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.folders.customContextMenuRequested.connect(self.side_menu)
+        sl.addWidget(self.folders, 1)
+
+        self.shot_btn = SideButton("shot", "Скриншот", "", "accent")
+        self.shot_btn.clicked.connect(lambda: QTimer.singleShot(250, self.ctl.take_screenshot))
+        self.quick_btn = SideButton("grid", "Быстрое меню", "", "card")
+        self.quick_btn.clicked.connect(self.ctl.show_quick)
+        sl.addSpacing(6)
+        sl.addWidget(self.shot_btn)
+        sl.addSpacing(4)
+        sl.addWidget(self.quick_btn)
+        sl.addSpacing(10)
+        settings = SideButton("settings", "Настройки")
+        settings.clicked.connect(self.ctl.open_settings)
+        about = SideButton("info", "О приложении")
+        about.clicked.connect(self.show_about)
+        sl.addWidget(settings)
+        sl.addWidget(about)
+        line2 = QFrame()
+        line2.setObjectName("hline")
+        line2.setFixedHeight(1)
+        sl.addSpacing(6)
+        sl.addWidget(line2)
+        foot = QHBoxLayout()
+        foot.setContentsMargins(10, 8, 4, 0)
+        self.status = QPushButton()
+        self.status.setObjectName("statusBtn")
+        self.status.setCursor(Qt.PointingHandCursor)
+        self.status.clicked.connect(lambda: self.ctl.set_paused(not self.ctl.paused))
+        al = QLabel("Автозапуск")
+        al.setObjectName("hint")
+        self.autostart = Toggle()
+        self.autostart.setEnabled(IS_WIN)
+        self.autostart.setToolTip("Запускать Kipshot вместе с Windows")
+        self.autostart.toggled.connect(self.on_autostart)
+        foot.addWidget(self.status)
+        foot.addStretch()
+        foot.addWidget(al)
+        foot.addSpacing(6)
+        foot.addWidget(self.autostart)
+        sl.addLayout(foot)
+        self.hotkey_hint = QLabel()  # совместимость: текст подсказки про клавиши
+        self.hotkey_hint.hide()
+        return side
+
+    def logo_pixmap(self, s):
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap(int(s * dpr), int(s * dpr))
+        pm.fill(Qt.transparent)
+        pm.setDevicePixelRatio(dpr)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        g = QLinearGradient(0, 0, s, s)
+        g.setColorAt(0, QColor("#9b7bff"))
+        g.setColorAt(1, QColor("#5b34e0"))
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(1, 1, s - 2, s - 2), s * 0.28, s * 0.28)
+        p.fillPath(path, g)
+        draw_icon(p, "bolt_fill", QRectF(s * 0.22, s * 0.2, s * 0.56, s * 0.6), "#ffffff", 1.2)
+        p.end()
+        return pm
+
+    def set_hotkeys(self, panel, panel_ok, shot, shot_ok):
+        short = lambda k: (k or "").replace("CapsLock", "Caps").replace("Print Screen", "PrtSc").replace("+", " + ")
+        self.quick_btn.set_kbd(short(panel), not panel_ok)
+        self.quick_btn.setToolTip(f"Быстрое меню — {panel}" if panel_ok else
+                                  f"{panel} занято другой программой — выберите другое сочетание в настройках")
+        if SHOT_HOTKEYS.get(shot):
+            self.shot_btn.set_kbd(short(shot), not shot_ok)
+            self.shot_btn.setToolTip(f"Скриншот области — {shot}" if shot_ok else
+                                     f"{shot} занято другой программой — выберите другое сочетание в настройках")
+        else:
+            self.shot_btn.set_kbd("")
+            self.shot_btn.setToolTip("Скриншот области")
+
+    def on_autostart(self, on):
+        if not IS_WIN or on == get_autostart():
+            return
+        try:
+            set_autostart(on)
+            self.notify("Автозапуск включён" if on else "Автозапуск выключен")
+        except OSError as e:
+            self.notify(f"Не удалось изменить автозапуск: {e}")
+            self.autostart.setChecked(get_autostart())
+
+    def sync_footer(self):
+        paused = self.ctl.paused
+        dot = "#f59e0b" if paused else "#22c55e"
+        self.status.setText(("  Запись на паузе" if paused else "  Работает в фоне"))
+        self.status.setIcon(self.dot_icon(dot))
+        self.status.setToolTip("Нажмите, чтобы продолжить запись буфера" if paused else
+                               "Нажмите, чтобы поставить запись буфера на паузу")
+        if IS_WIN:
+            self.autostart.blockSignals(True)
+            self.autostart.setChecked(get_autostart())
+            self.autostart.blockSignals(False)
+
+    @staticmethod
+    def dot_icon(color):
+        pm = QPixmap(20, 20)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        c = QColor(color)
+        c.setAlpha(60)
+        p.setBrush(c)
+        p.drawEllipse(QRectF(2, 2, 16, 16))
+        p.setBrush(QColor(color))
+        p.drawEllipse(QRectF(6, 6, 8, 8))
+        p.end()
+        return QIcon(pm)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self.sync_footer()
+
+    def show_about(self):
+        d = QDialog(self)
+        d.setWindowTitle("О приложении")
+        d.setFixedWidth(440)
+        style_window(d)
+        lay = QVBoxLayout(d)
+        lay.setContentsMargins(26, 24, 26, 20)
+        lay.setSpacing(12)
+        top = QHBoxLayout()
+        top.setSpacing(14)
+        logo = QLabel()
+        logo.setPixmap(self.logo_pixmap(56))
+        names = QVBoxLayout()
+        names.setSpacing(2)
+        t = QLabel(f"{APP} {APP_VERSION}")
+        t.setObjectName("brand")
+        s = QLabel("Буфер обмена и скриншоты для Windows")
+        s.setObjectName("muted")
+        names.addWidget(t)
+        names.addWidget(s)
+        top.addWidget(logo)
+        top.addLayout(names, 1)
+        lay.addLayout(top)
+        panel = self.ctl.store.get_setting("hotkey", DEFAULT_HOTKEY)
+        shot = self.ctl.store.get_setting("shot_hotkey", DEFAULT_SHOT_HOTKEY)
+        txt = QLabel(f"<b>{panel}</b> — быстрое меню истории<br><b>{shot}</b> — скриншот области или окна<br>"
+                     "<b>Ctrl+F</b> — поиск, <b>Ctrl+N</b> — новая заметка, <b>Del</b> — удалить<br><br>"
+                     "История и настройки хранятся только на этом компьютере:<br>"
+                     f"<span style='color:{MUTED}'>{data_dir()}</span>")
+        txt.setWordWrap(True)
+        txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(txt)
+        row = QHBoxLayout()
+        gh = set_icon(QPushButton(" Страница на GitHub"), "external", TEXT)
+        gh.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/Mafeyn/Kipshot")))
+        data = set_icon(QPushButton(" Папка данных"), "folder", TEXT)
+        data.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(data_dir())))
+        ok = QPushButton("Закрыть")
+        ok.setObjectName("primary")
+        ok.clicked.connect(d.accept)
+        row.addWidget(gh)
+        row.addWidget(data)
+        row.addStretch()
+        row.addWidget(ok)
+        lay.addLayout(row)
+        d.exec()
+
+    # ── средняя колонка
+    def build_center(self):
+        center = QWidget()
+        center.setObjectName("center")
+        center.setMinimumWidth(420)
+        cl = QVBoxLayout(center)
+        cl.setContentsMargins(0, 4, 0, 0)
+        cl.setSpacing(12)
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        box = QFrame()
+        box.setObjectName("searchBox")
+        bl = QHBoxLayout(box)
+        bl.setContentsMargins(14, 0, 8, 0)
+        bl.setSpacing(8)
+        si = QLabel()
+        si.setPixmap(icon("search", MUTED, size=18).pixmap(QSize(18, 18), self.devicePixelRatioF()))
+        self.search = QLineEdit()
+        self.search.setObjectName("searchEdit")
+        self.search.setPlaceholderText("Поиск в истории…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(lambda: self.search_timer.start())
+        self.search.installEventFilter(self)
+        self.search_box = box
+        kbd = QLabel("Ctrl + F")
+        kbd.setObjectName("kbd")
+        bl.addWidget(si)
+        bl.addWidget(self.search, 1)
+        bl.addWidget(kbd)
+        self.search_timer = QTimer(self, singleShot=True, interval=150)
+        self.search_timer.timeout.connect(self.refresh)
+        self.filter_btn = set_icon(QToolButton(), "filter", TEXT, 18)
+        self.filter_btn.setObjectName("squareBtn")
+        self.filter_btn.setToolTip("Сортировка и период")
+        self.filter_btn.setPopupMode(QToolButton.InstantPopup)
+        self.filter_menu = QMenu(self)
+        self.filter_menu.aboutToShow.connect(self.build_filter_menu)
+        self.filter_btn.setMenu(self.filter_menu)
+        self.view_btn = QToolButton()
+        self.view_btn.setObjectName("squareBtn")
+        self.view_btn.clicked.connect(self.toggle_grid)
+        for b in (self.filter_btn, self.view_btn):
+            b.setFixedSize(46, 46)
+            b.setIconSize(QSize(18, 18))
+            b.setCursor(Qt.PointingHandCursor)
+        top.addWidget(box, 1)
+        top.addWidget(self.filter_btn)
+        top.addWidget(self.view_btn)
+        cl.addLayout(top)
+
+        self.chips = QFrame()
+        self.chips.setObjectName("chipBar")
+        chl = QHBoxLayout(self.chips)
+        chl.setContentsMargins(4, 4, 4, 4)
+        chl.setSpacing(2)
+        self.chip_group = QButtonGroup(self)
+        for i, (name, kind, ic) in enumerate(KIND_CHIPS):
+            b = QPushButton(name if not ic else " " + name)
+            if ic:
+                set_icon(b, ic, MUTED, 15, on="#ffffff")
+            b.setObjectName("kindChip")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            self.chip_group.addButton(b, i)
+            chl.addWidget(b)
+        chl.addStretch()
+        self.chip_group.button(0).setChecked(True)
+        self.chip_group.idClicked.connect(self.on_chip)
+        cl.addWidget(self.chips)
+
+        self.list_stack = QStackedWidget()
+        self.list = QListWidget()
+        self.list.setObjectName("history")
+        self.delegate = RowDelegate(self)
+        self.list.setItemDelegate(self.delegate)
+        self.list.setMouseTracking(True)
+        self.list.viewport().installEventFilter(self)
+        self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.list.verticalScrollBar().setSingleStep(24)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list.currentItemChanged.connect(self.on_item_changed)
+        self.list.itemClicked.connect(self.on_item_clicked)
+        self.list.itemDoubleClicked.connect(
+            lambda it: it.data(ROLE) and self.ctl.copy_item(it.data(Qt.UserRole), notify=True))
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self.item_menu)
+        self.empty = QLabel()
+        self.empty.setObjectName("empty")
+        self.empty.setAlignment(Qt.AlignCenter)
+        self.empty.setWordWrap(True)
+        self.list_stack.addWidget(self.list)
+        self.list_stack.addWidget(self.empty)
+        cl.addWidget(self.list_stack, 1)
+        return center
+
+    def eventFilter(self, obj, ev):
+        if not hasattr(self, "list"):  # событие пришло, пока окно ещё строится
+            return super().eventFilter(obj, ev)
+        if obj is self.list.viewport():
+            if ev.type() == QEvent.Resize and self.grid_mode:
+                self.fit_tiles()
+            if ev.type() == QEvent.MouseMove:
+                self.delegate.mouse = ev.position().toPoint()
+                self.list.viewport().update()
+            elif ev.type() == QEvent.Leave:
+                self.delegate.mouse = QPoint(-1, -1)
+                self.list.viewport().update()
+        elif obj is self.search:
+            if ev.type() in (QEvent.FocusIn, QEvent.FocusOut):
+                self.search_box.setProperty("focus", ev.type() == QEvent.FocusIn)
+                self.search_box.style().unpolish(self.search_box)
+                self.search_box.style().polish(self.search_box)
+            elif ev.type() == QEvent.KeyPress and ev.key() in (Qt.Key_Down, Qt.Key_Up):
+                self.list.setFocus()
+                self.step_selection(1 if ev.key() == Qt.Key_Down else -1)
+                return True
+        return super().eventFilter(obj, ev)
+
+    def step_selection(self, step):
+        n = self.list.count()
+        i = self.list.currentRow()
+        while n:
+            i = max(0, min(n - 1, i + step))
+            it = self.list.item(i)
+            if it.data(ROLE):
+                self.list.setCurrentRow(i)
+                return
+            if i in (0, n - 1):
+                return
+
+    def build_filter_menu(self):
+        m = self.filter_menu
+        m.clear()
+        m.addSection("Сортировка")
+        for old, name in ((False, "Сначала новые"), (True, "Сначала старые")):
+            a = m.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(self.sort_old == old)
+            a.triggered.connect(lambda _=False, o=old: self.set_filter(sort_old=o))
+        m.addSection("Период")
+        for key, name in (("all", "За всё время"), ("today", "Сегодня"), ("week", "За 7 дней"), ("month", "За 30 дней")):
+            a = m.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(self.period == key)
+            a.triggered.connect(lambda _=False, k=key: self.set_filter(period=k))
+        m.addSeparator()
+        m.addAction("Развернуть все группы").triggered.connect(lambda: (self.collapsed.clear(), self.refresh()))
+        m.addAction("Очистить историю…").triggered.connect(lambda: self.ctl.clear_history(self))
+
+    def set_filter(self, sort_old=None, period=None):
+        if sort_old is not None:
+            self.sort_old = sort_old
+            self.ctl.store.set_setting("sort_old", int(sort_old))
+        if period is not None:
+            self.period = period
+            self.ctl.store.set_setting("period", period)
+        active = self.sort_old or self.period != "all"
+        self.filter_btn.setProperty("active", active)
+        self.filter_btn.style().unpolish(self.filter_btn)
+        self.filter_btn.style().polish(self.filter_btn)
+        self.refresh()
+
+    def toggle_grid(self):
+        self.grid_mode = not self.grid_mode
+        self.ctl.store.set_setting("grid_mode", int(self.grid_mode))
+        self.apply_grid()
+        self.refresh()
+
+    def apply_grid(self):
+        lw = self.list
+        if self.grid_mode:
+            lw.setViewMode(QListView.IconMode)
+            lw.setResizeMode(QListView.Adjust)
+            lw.setMovement(QListView.Static)
+            lw.setWrapping(True)
+            lw.setUniformItemSizes(True)
+            lw.setSpacing(2)
+            QTimer.singleShot(0, self.fit_tiles)
+        else:
+            lw.setViewMode(QListView.ListMode)
+            lw.setWrapping(False)
+            lw.setUniformItemSizes(False)
+            lw.setSpacing(0)
+        set_icon(self.view_btn, "list" if self.grid_mode else "grid", TEXT, 18)
+        self.view_btn.setToolTip("Показать списком" if self.grid_mode else "Показать плиткой")
+        self.filter_btn.setProperty("active", self.sort_old or self.period != "all")
+
+    def fit_tiles(self):
+        vw = self.list.viewport().width() - 4
+        cols = max(1, vw // 172)
+        tw = vw // cols - 2 * self.list.spacing() - 2
+        if tw != self.delegate.tile_w:
+            self.delegate.tile_w = tw
+            self.list.doItemsLayout()
+
+    def on_chip(self, i):
+        self.kind = KIND_CHIPS[i][1]
+        self.refresh()
+
+    # боковая панель
+    def build_folders(self):
+        cur = self.view
+        self.folders.blockSignals(True)
+        self.folders.clear()
+        for fo in self.ctl.store.folders():
             it = QListWidgetItem(fo["name"])
-            view = ("folder", fo["id"])
-            it.setData(Qt.UserRole, view)
+            it.setData(Qt.UserRole, ("folder", fo["id"]))
             it.setData(SIDE_ICON, "folder")
-            self.side.addItem(it)
-            if view == cur:
-                target = it
-        if target is None:
-            target = self.side.item(0)
+            self.folders.addItem(it)
+        if not self.folders.count():
+            it = QListWidgetItem("Пока нет папок")
+            it.setFlags(Qt.NoItemFlags)
+            self.folders.addItem(it)
+        self.folders.blockSignals(False)
+        if cur[0] == "folder" and not any(self.folders.item(i).data(Qt.UserRole) == cur
+                                          for i in range(self.folders.count())):
             self.view = ("all",)
-        self.side.setCurrentItem(target)
-        self.side.blockSignals(False)
-        self.update_counts()
+        self.select_view(self.view)
+
+    def build_side(self):  # вызывает контроллер после изменения папок
+        self.build_folders()
+        self.refresh()
+
+    def select_view(self, view):
+        for lw in (self.side, self.folders):
+            lw.blockSignals(True)
+            lw.clearSelection()
+            lw.setCurrentRow(-1)
+            for i in range(lw.count()):
+                v = lw.item(i).data(Qt.UserRole)
+                if v and tuple(v) == tuple(view):
+                    lw.setCurrentRow(i)
+            lw.blockSignals(False)
 
     def update_counts(self):
         c = self.ctl.store.counts()
-        for i in range(self.side.count()):
-            it = self.side.item(i)
-            v = it.data(Qt.UserRole)
-            if v:
-                it.setData(SIDE_COUNT, c.get(tuple(v), 0))
+        for lw in (self.side, self.folders):
+            for i in range(lw.count()):
+                it = lw.item(i)
+                v = it.data(Qt.UserRole)
+                if v:
+                    it.setData(SIDE_COUNT, c.get(tuple(v), 0))
 
     def on_view_changed(self, it, _prev=None):
         if it and it.data(Qt.UserRole):
             self.view = tuple(it.data(Qt.UserRole))
+            self.select_view(self.view)
+            fixed = VIEW_KIND.get(self.view[0])
+            self.chips.setVisible(fixed is None)
+            if fixed is None:
+                self.kind = KIND_CHIPS[max(0, self.chip_group.checkedId())][1]
             self.refresh()
 
     def side_menu(self, pos):
-        it = self.side.itemAt(pos)
-        if not it or not it.data(Qt.UserRole) or it.data(Qt.UserRole)[0] != "folder":
+        it = self.folders.itemAt(pos)
+        if not it or not it.data(Qt.UserRole):
             return
         fid = it.data(Qt.UserRole)[1]
         m = QMenu(self)
         m.addAction("Переименовать").triggered.connect(lambda: self.ctl.rename_folder(fid, self))
         m.addAction("Удалить папку").triggered.connect(lambda: self.ctl.delete_folder(fid, self))
-        m.exec(self.side.mapToGlobal(pos))
+        m.exec(self.folders.mapToGlobal(pos))
 
     # список
+    def cur_id(self):
+        it = self.list.currentItem()
+        return it.data(Qt.UserRole) if it and it.data(ROLE) else None
+
     def refresh(self):
-        keep = current_id(self.list)
-        rows = self.ctl.store.query(self.view, self.search.text().strip())
-        fill_list(self.list, rows, keep)
-        n = len(rows)
-        self.count.setText(f"{n} элем." + ("   ·   запись на паузе" if self.ctl.paused else ""))
+        keep = self.cur_id()
+        fixed = VIEW_KIND.get(self.view[0])
+        kind = fixed or self.kind
+        since = {"today": datetime.datetime.combine(datetime.date.today(), datetime.time()).timestamp(),
+                 "week": time.time() - 7 * 86400, "month": time.time() - 30 * 86400}.get(self.period)
+        rows = [dict(r) for r in self.ctl.store.query(self.view, self.search.text().strip(), kind=kind, since=since,
+                                                      oldest_first=self.sort_old)]
+        lw = self.list
+        lw.blockSignals(True)
+        lw.clear()
+        sel_row = -1
+        grouped = not self.grid_mode and self.view[0] != "pinned" and not self.search.text().strip()
+        groups = []
+        if grouped:
+            pinned_first = self.view[0] in ("all", "notes", "folder") and not self.sort_old
+            for d in rows:
+                key = "pinned" if pinned_first and d["pinned"] else day_key(d["used"])
+                if not groups or groups[-1][0] != key:
+                    groups.append((key, []))
+                groups[-1][1].append(d)
+        else:
+            groups = [(None, rows)]
+        for key, items in groups:
+            if key is not None:
+                label = "Закреплённые" if key == "pinned" else day_label(key)
+                coll = str(key) in self.collapsed
+                h = QListWidgetItem()
+                h.setData(HDR, (str(key), label, len(items), coll))
+                h.setFlags(Qt.ItemIsEnabled)
+                h.setSizeHint(QSize(200, 40))
+                lw.addItem(h)
+                if coll:
+                    continue
+            for d in items:
+                it = QListWidgetItem()
+                it.setData(ROLE, d)
+                it.setData(Qt.UserRole, d["id"])
+                lw.addItem(it)
+                if keep is not None and d["id"] == keep:
+                    sel_row = lw.count() - 1
+        lw.blockSignals(False)
+        if sel_row < 0:
+            sel_row = next((i for i in range(lw.count()) if lw.item(i).data(ROLE)), -1)
+        if sel_row >= 0:
+            lw.setCurrentRow(sel_row)
+        else:
+            self.preview.show_item(None)
         self.update_counts()
+        self.sync_footer()
+        if rows:
+            self.list_stack.setCurrentWidget(self.list)
+        else:
+            q = self.search.text().strip()
+            self.empty.setText(f"Ничего не найдено по запросу «{q}»" if q else
+                               "Здесь пока пусто\n\nСкопируйте что-нибудь (Ctrl+C) или сделайте скриншот")
+            self.list_stack.setCurrentWidget(self.empty)
 
     def on_item_changed(self, it, _prev=None):
-        self.preview.show_item(it.data(Qt.UserRole) if it else None)
+        if it is not None and it.data(ROLE):
+            self.preview.show_item(it.data(Qt.UserRole))
+
+    def on_item_clicked(self, it):
+        if it is None:  # строку уже пересобрали (например, после кнопки «Закрепить» в ней)
+            return
+        hdr = it.data(HDR)
+        if hdr:
+            key = hdr[0]
+            self.collapsed.symmetric_difference_update({key})
+            self.refresh()
+
+    def row_action(self, iid, name, gpos):
+        if name == "copy":
+            self.ctl.copy_item(iid, notify=True)
+        elif name == "pin":
+            self.ctl.toggle_pin(iid)
+        elif name == "folder":
+            r = self.ctl.store.get(iid)
+            m = QMenu(self)
+            m.addAction(("✓ " if not r["folder_id"] else "   ") + "Без папки").triggered.connect(
+                lambda: self.ctl.set_folder(iid, None))
+            for f in self.ctl.store.folders():
+                m.addAction(("✓ " if r["folder_id"] == f["id"] else "   ") + f["name"]).triggered.connect(
+                    lambda _=False, fid=f["id"]: self.ctl.set_folder(iid, fid))
+            m.addSeparator()
+            m.addAction("＋ Новая папка…").triggered.connect(
+                lambda: (lambda fid: fid and self.ctl.set_folder(iid, fid))(self.ctl.ask_new_folder(self)))
+            m.exec(gpos)
+        elif name == "dots":
+            self.ctl.item_context_menu(iid, self, gpos)
 
     def item_menu(self, pos):
         it = self.list.itemAt(pos)
-        if not it:
-            return
-        self.ctl.item_context_menu(it.data(Qt.UserRole), self, self.list.mapToGlobal(pos))
+        if it and it.data(ROLE):
+            self.ctl.item_context_menu(it.data(Qt.UserRole), self, self.list.mapToGlobal(pos))
 
     def delete_current(self):
-        iid = current_id(self.list)
+        iid = self.cur_id()
         if iid:
             row = self.list.currentRow()
             self.ctl.delete_item(iid)
             if self.list.count():
                 self.list.setCurrentRow(min(row, self.list.count() - 1))
+                if not self.list.currentItem().data(ROLE):
+                    self.step_selection(1)
 
     def new_note(self):
         if self.view != ("notes",):
-            for i in range(self.side.count()):
-                if self.side.item(i).data(Qt.UserRole) == ("notes",):
-                    self.side.setCurrentRow(i)
-                    break
+            self.view = ("notes",)
+            self.select_view(self.view)
+            self.chips.show()
         iid = self.ctl.store.add("text", "", is_note=1, title="Новая заметка", h=make_hash("note", str(time.time())))
         self.ctl.changed.emit()
         for i in range(self.list.count()):
-            if self.list.item(i).data(Qt.UserRole) == iid:
+            if self.list.item(i).data(Qt.UserRole) == iid and self.list.item(i).data(ROLE):
                 self.list.setCurrentRow(i)
         self.preview.title.setFocus()
         self.preview.title.selectAll()
@@ -1919,10 +3522,11 @@ def draw_item_icon(p, ctl, d, ir, radius, base_font=None):
     else:
         k = "note" if d["is_note"] else kind
         c = QColor(KIND_COLOR.get(k, MUTED))
+        p.fillPath(ipath, QColor("#24222f"))
         bg = QColor(c)
-        bg.setAlpha(30)
+        bg.setAlpha(22)
         p.fillPath(ipath, bg)
-        sz = ir.height() * 0.5
+        sz = min(ir.width(), ir.height()) * 0.46
         draw_icon(p, KIND_ICON.get(k, "type"), QRectF(ir.center().x() - sz / 2, ir.center().y() - sz / 2, sz, sz),
                   c.name(), 1.9)
 
@@ -1949,7 +3553,7 @@ class CompactDelegate(QStyledItemDelegate):
         if sel or hov:
             bg = QPainterPath()
             bg.addRoundedRect(r, 8, 8)
-            p.fillPath(bg, QColor(123, 108, 255, 38) if sel else QColor(255, 255, 255, 10))
+            p.fillPath(bg, QColor(139, 92, 246, 38) if sel else QColor(255, 255, 255, 10))
         if sel:
             bar = QPainterPath()
             bar.addRoundedRect(QRectF(r.left() + 1, r.top() + 9, 3, r.height() - 18), 1.5, 1.5)
@@ -3579,6 +5183,8 @@ class Controller(QObject):
             self.draw["size"] = "M"
         self.ignore_until = 0.0
         self.prev_hwnd = None
+        self.last_ext_hwnd = None  # последнее «чужое» активное окно — туда вставляет кнопка «Вставить»
+        self.ocr_inline = set()
         self._tray_hinted = self.store.get_setting("tray_hinted", "0") == "1"
 
         self.clip = QGuiApplication.clipboard()
@@ -3610,6 +5216,11 @@ class Controller(QObject):
             self.tray.activated.connect(
                 lambda r: self.show_main() if r in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
             self.tray.show()
+
+        if IS_WIN:
+            self.fg_timer = QTimer(self, interval=400)
+            self.fg_timer.timeout.connect(self.track_foreground)
+            self.fg_timer.start()
 
         self.hotkey = Hotkey(self.toggle_quick)
         self.shot_hotkey = Hotkey(self.take_screenshot, SHOT_HOTKEY_ID, SHOT_HOTKEYS, DEFAULT_SHOT_HOTKEY)
@@ -3688,6 +5299,40 @@ class Controller(QObject):
             user32.SetForegroundWindow(self.prev_hwnd)
             QTimer.singleShot(120, send_ctrl_v)
 
+    def own_hwnds(self):
+        ws = [self.main, self.quick, self.compact] + [w for w in QApplication.topLevelWidgets() if w.isVisible()]
+        return {int(w.winId()) for w in ws if w.testAttribute(Qt.WA_WState_Created)}
+
+    def track_foreground(self):
+        fg = user32.GetForegroundWindow()
+        if fg:
+            fg = user32.GetAncestor(fg, 2) or fg  # GA_ROOT
+            if int(fg) not in self.own_hwnds():
+                self.last_ext_hwnd = fg
+
+    def window_title(self, hwnd):
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, buf, 256)
+        return buf.value
+
+    def paste_target_hint(self):
+        h = self.last_ext_hwnd
+        if IS_WIN and h and user32.IsWindow(h) and (t := self.window_title(h)):
+            return f"Вставить в «{t[:60]}»"
+        return "Скопировать и вставить в окно, где вы были до Kipshot"
+
+    def paste_from_main(self, iid):
+        """«Вставить» в главном окне: положить в буфер и вставить в предыдущее окно."""
+        if not self.put_on_clipboard(iid):
+            return
+        self.changed.emit()
+        h = self.last_ext_hwnd
+        if IS_WIN and h and user32.IsWindow(h):
+            user32.SetForegroundWindow(h)
+            QTimer.singleShot(150, send_ctrl_v)
+        else:
+            self.main.notify("Скопировано — вставьте в нужное окно (Ctrl+V)")
+
     # ── действия с элементами
     def toggle_pin(self, iid):
         r = self.store.get(iid)
@@ -3724,9 +5369,12 @@ class Controller(QObject):
         self.main.statusBar().showMessage("Сохранено ✓", 1500)
 
     # ── распознавание текста
-    def recognize_text(self, iid, quick=False):
+    def recognize_text(self, iid, quick=False, inline=False):
+        if inline:
+            self.ocr_inline.add(iid)
         if iid in self.ocr_cache:
-            self.show_ocr(iid, self.ocr_cache[iid], "", quick)
+            self.on_ocr_done(iid, self.ocr_cache[iid], "", quick) if inline else \
+                self.show_ocr(iid, self.ocr_cache[iid], "", quick)
             return
         if iid in self.ocr_running:
             return
@@ -3735,7 +5383,6 @@ class Controller(QObject):
             return
         self.ocr_running.add(iid)
         QApplication.setOverrideCursor(Qt.BusyCursor)
-        self.main.statusBar().showMessage("Распознаю текст…")
 
         def work(data=r["image"]):
             try:
@@ -3745,11 +5392,15 @@ class Controller(QObject):
         threading.Thread(target=work, daemon=True).start()
 
     def on_ocr_done(self, iid, text, err, quick):
-        self.ocr_running.discard(iid)
-        QApplication.restoreOverrideCursor()
-        self.main.statusBar().clearMessage()
+        if iid in self.ocr_running:
+            self.ocr_running.discard(iid)
+            QApplication.restoreOverrideCursor()
         if not err:
             self.ocr_cache[iid] = text
+        if iid in self.ocr_inline:  # распознавали из вкладки «Текст (OCR)» — показываем там же
+            self.ocr_inline.discard(iid)
+            self.main.preview.on_ocr(iid, text, err)
+            return
         self.show_ocr(iid, text, err, quick)
 
     def show_ocr(self, iid, text, err, quick):
@@ -3900,6 +5551,7 @@ class Controller(QObject):
         ok = self.hotkey.set(name)
         shot = self.store.get_setting("shot_hotkey", DEFAULT_SHOT_HOTKEY)
         shot_ok = self.shot_hotkey.set(shot)
+        self.main.set_hotkeys(name, ok or not IS_WIN, shot, shot_ok or not IS_WIN)
         if IS_WIN:
             lines = [f"Быстрая панель: {name}" if ok else
                      f"⚠ {name} занято другой программой — выберите другое в настройках"]
@@ -3967,6 +5619,7 @@ class Controller(QObject):
                     n += 1
                 with open(path, "wb") as f:
                     f.write(png)
+                self.store.update(iid, path=path)
             except OSError as e:
                 print("screenshot save error:", e, file=sys.stderr)
                 path = None
