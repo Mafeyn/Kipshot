@@ -1,6 +1,6 @@
 ﻿; Kipshot — скрипт установщика (Inno Setup 6)
 #define AppName "Kipshot"
-#define AppVersion "1.3.0"
+#define AppVersion "1.4.0"
 #define AppExe "Kipshot.exe"
 
 [Setup]
@@ -49,6 +49,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Запустить Kipshot"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "KillKipshot"

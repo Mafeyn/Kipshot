@@ -49,7 +49,7 @@ from PySide6.QtNetwork import (QLocalServer, QLocalSocket, QNetworkAccessManager
 
 APP = "Kipshot"
 OLD_APP = "ClipNest"  # прежнее название: оттуда забираем историю и автозапуск
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 IS_WIN = sys.platform == "win32"
 
 # ───────────────────────────── Цвета и стиль ─────────────────────────────
@@ -2740,6 +2740,10 @@ class MainWindow(QMainWindow):
         self.folders.customContextMenuRequested.connect(self.side_menu)
         sl.addWidget(self.folders, 1)
 
+        self.update_btn = SideButton("save", "Обновить", "", "accent")
+        self.update_btn.clicked.connect(lambda: self.ctl.updater.download())
+        self.update_btn.hide()
+        sl.addWidget(self.update_btn)
         self.shot_btn = SideButton("shot", "Скриншот", "", "accent")
         self.shot_btn.clicked.connect(lambda: QTimer.singleShot(250, self.ctl.take_screenshot))
         self.quick_btn = SideButton("grid", "Быстрое меню", "", "card")
@@ -2811,6 +2815,28 @@ class MainWindow(QMainWindow):
         else:
             self.shot_btn.set_kbd("")
             self.shot_btn.setToolTip("Скриншот области")
+
+    def sync_update(self):
+        u = self.ctl.updater
+        L = u.latest
+        self.update_btn.setVisible(bool(L))
+        if not L:
+            return
+        if u.error and u.progress is None:
+            text, tip = "Повторить обновление", f"Не получилось: {u.error}"
+        elif u.progress is None:
+            text = f"Обновить до {L['version']}"
+            notes = re.sub(r"[*`#]", "", L["notes"]).strip()
+            tip = f"Новая версия {L['version']}. Скачается и установится сама, Kipshot перезапустится." + \
+                  (f"\n\n{notes[:600]}" if notes else "")
+        elif u.progress < 100:
+            text, tip = f"Скачиваю… {u.progress}%", "Скачиваю обновление"
+        else:
+            text, tip = "Устанавливаю…", "Kipshot закроется и запустится уже новой версией"
+        self.update_btn.setText(text)
+        self.update_btn.setToolTip(tip)
+        self.update_btn.setEnabled(u.progress is None)
+        self.update_btn.update()
 
     def on_autostart(self, on):
         if not IS_WIN or on == get_autostart():
@@ -2886,6 +2912,24 @@ class MainWindow(QMainWindow):
         txt.setWordWrap(True)
         txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(txt)
+        upd = QHBoxLayout()
+        self.about_upd = QLabel()
+        self.about_upd.setObjectName("muted")
+        chk = set_icon(QPushButton(" Проверить обновления"), "upload", TEXT)
+        chk.clicked.connect(lambda: self.ctl.updater.check(manual=True))
+
+        def upd_text():
+            u = self.ctl.updater
+            ts = int(self.ctl.store.get_setting("update_checked", 0) or 0)
+            self.about_upd.setText("Проверяю…" if u.checking else
+                                   f"Доступна версия {u.latest['version']}" if u.latest else
+                                   f"Последняя проверка: {when_label(ts).lower()}" if ts else "Обновления ещё не проверялись")
+        upd_text()
+        self.ctl.updater.state.connect(upd_text)
+        d.finished.connect(lambda: self.ctl.updater.state.disconnect(upd_text))
+        upd.addWidget(self.about_upd, 1)
+        upd.addWidget(chk)
+        lay.addLayout(upd)
         row = QHBoxLayout()
         gh = set_icon(QPushButton(" Страница на GitHub"), "external", TEXT)
         gh.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/Mafeyn/Kipshot")))
@@ -4149,6 +4193,161 @@ class Uploader(QObject):
         self.done.emit(iid, url, dele or "", "")
 
 
+UPDATE_REPO = "Mafeyn/Kipshot"
+
+
+def version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3]) or (0,)
+
+
+class Updater(QObject):
+    """Новые версии из релизов GitHub: проверка, скачивание и установка поверх с перезапуском."""
+    state = Signal()  # нашли обновление, идёт скачивание, ошибка — окно перерисовывает кнопку
+
+    def __init__(self, ctl):
+        super().__init__()
+        self.ctl = ctl
+        self.nam = QNetworkAccessManager(self)
+        self.latest = None  # {"version", "notes", "url", "asset_url", "asset_name", "size"}
+        self.progress = None  # 0…100, пока скачиваем
+        self.error = ""
+        self.checking = False
+        self.reply = None
+        self.file = None
+        self.path = ""
+
+    @staticmethod
+    def portable():
+        return getattr(sys, "frozen", False) and "portable" in os.path.basename(sys.executable).lower()
+
+    def request(self, url):
+        req = QNetworkRequest(QUrl(url))
+        req.setHeader(QNetworkRequest.UserAgentHeader, f"{APP}/{APP_VERSION}")
+        req.setAttribute(QNetworkRequest.RedirectPolicyAttribute, QNetworkRequest.NoLessSafeRedirectPolicy)
+        return req
+
+    def check(self, manual=False):
+        if self.checking or self.progress is not None:
+            return
+        self.checking = True
+        self.error = ""
+        req = self.request(f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest")
+        req.setRawHeader(b"Accept", b"application/vnd.github+json")
+        req.setTransferTimeout(20000)
+        r = self.nam.get(req)
+        r.finished.connect(lambda: self.on_checked(r, manual))
+        self.state.emit()
+
+    def on_checked(self, r, manual):
+        self.checking = False
+        body = bytes(r.readAll())
+        net_err = r.errorString() if r.error() else ""
+        r.deleteLater()
+        self.apply_release(body, net_err, manual)
+
+    def apply_release(self, body, net_err="", manual=False):
+        found = None
+        try:
+            d = json.loads(body.decode("utf-8"))
+            tag = d.get("tag_name") or ""
+            if not tag:
+                raise ValueError(d.get("message") or "нет релизов")
+            want = "portable" if self.portable() else "setup"
+            asset = next((a for a in d.get("assets", []) if want in (a.get("name") or "").lower()
+                          and (a.get("name") or "").lower().endswith(".exe")), None)
+            if version_tuple(tag) > version_tuple(APP_VERSION):
+                found = {"version": tag.lstrip("vV"), "notes": d.get("body") or "",
+                         "url": d.get("html_url") or f"https://github.com/{UPDATE_REPO}/releases/latest",
+                         "asset_url": (asset or {}).get("browser_download_url", ""),
+                         "asset_name": (asset or {}).get("name", ""), "size": (asset or {}).get("size", 0)}
+        except Exception as e:
+            self.error = net_err or f"не удалось прочитать ответ GitHub ({e})"
+        if not self.error:
+            self.ctl.store.set_setting("update_checked", int(time.time()))
+        self.latest = found
+        self.state.emit()
+        self.ctl.on_update_checked(manual)
+
+    def download(self):
+        L = self.latest
+        if not L or self.progress is not None:
+            return
+        if not L["asset_url"] or not getattr(sys, "frozen", False):  # запуск из исходников — просто страница релиза
+            QDesktopServices.openUrl(QUrl(L["url"]))
+            return
+        self.error = ""
+        self.progress = 0
+        self.path = os.path.join(tempfile.gettempdir(), L["asset_name"])
+        try:
+            self.file = open(self.path + ".part", "wb")
+        except OSError as e:
+            self.fail(str(e))
+            return
+        self.reply = self.nam.get(self.request(L["asset_url"]))
+        self.reply.readyRead.connect(lambda: self.file.write(bytes(self.reply.readAll())))
+        self.reply.downloadProgress.connect(self.on_progress)
+        self.reply.finished.connect(self.on_downloaded)
+        self.state.emit()
+
+    def on_progress(self, got, total):
+        total = total if total > 0 else (self.latest or {}).get("size", 0)
+        if total:
+            p = min(99, int(got * 100 / total))
+            if p != self.progress:
+                self.progress = p
+                self.state.emit()
+
+    def fail(self, msg):
+        self.progress = None
+        self.error = msg
+        for f in (self.path + ".part",):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        self.state.emit()
+
+    def on_downloaded(self):
+        r, self.reply = self.reply, None
+        self.file.write(bytes(r.readAll()))
+        self.file.close()
+        err = r.errorString() if r.error() else ""
+        r.deleteLater()
+        size = os.path.getsize(self.path + ".part")
+        want = self.latest["size"]
+        # размер из релиза — главная проверка: сервер может закрыть соединение «с ошибкой», отдав файл целиком
+        if not size or (want and size != want) or (not want and err):
+            self.fail("файл скачался не полностью" if size and want else err or "файл не скачался")
+            return
+        os.replace(self.path + ".part", self.path)
+        self.progress = 100
+        self.state.emit()
+        QTimer.singleShot(300, self.install)
+
+    def install(self):
+        """Ставим скачанное поверх и выходим: установщик сам запустит новую версию."""
+        try:
+            if self.portable():
+                exe, pid = sys.executable, os.getpid()
+                script = os.path.join(tempfile.gettempdir(), "kipshot_update.cmd")
+                with open(script, "w", encoding="utf-8") as f:
+                    f.write("@echo off\r\nchcp 65001 >nul\r\n"
+                            f"for /l %%i in (1,1,40) do (\r\n"
+                            f'  tasklist /fi "PID eq {pid}" | find "{pid}" >nul || goto go\r\n'
+                            "  timeout /t 1 /nobreak >nul\r\n)\r\n:go\r\n"
+                            f'move /y "{self.path}" "{exe}" >nul\r\n'
+                            f'start "" "{exe}"\r\n'
+                            'del "%~f0"\r\n')
+                subprocess.Popen(["cmd", "/c", script], creationflags=0x08000000)
+            else:
+                subprocess.Popen([self.path, "/SILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART",
+                                  "/MERGETASKS=!desktopicon,!autostart"])
+        except OSError as e:
+            self.fail(f"не удалось запустить установку: {e}")
+            return
+        QTimer.singleShot(400, self.ctl.quit)
+
+
 # ── инструменты рисования на скриншоте (как в ShareX / Lightshot)
 SHOT_COLORS = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#af52de", "#ffffff", "#111111"]
 SHOT_SIZES = {"S": 3, "M": 5, "L": 9}  # толщина линии в логических пикселях
@@ -5041,6 +5240,9 @@ class SettingsDialog(QDialog):
         self.limit.setSingleStep(50)
         self.limit.setValue(ctl.max_items)
         form.addRow("Хранить в истории (шт.):", self.limit)
+        self.upd = QCheckBox("Проверять обновления автоматически")
+        self.upd.setChecked(ctl.store.get_setting("auto_update", "1") == "1")
+        form.addRow("", self.upd)
         self.auto = QCheckBox("Запускать вместе с Windows")
         self.auto.setChecked(get_autostart())
         self.auto.setEnabled(IS_WIN)
@@ -5117,6 +5319,7 @@ class SettingsDialog(QDialog):
         s = self.ctl.store
         s.set_setting("max_items", self.limit.value())
         s.set_setting("auto_paste", int(self.paste.isChecked()))
+        s.set_setting("auto_update", int(self.upd.isChecked()))
         s.set_setting("sound", self.sound_box.currentData())
         s.set_setting("sound_volume", self.vol.value())
         self.ctl.sound.configure(self.sound_box.currentData(), self.vol.value())
@@ -5225,6 +5428,32 @@ class Controller(QObject):
         self.hotkey = Hotkey(self.toggle_quick)
         self.shot_hotkey = Hotkey(self.take_screenshot, SHOT_HOTKEY_ID, SHOT_HOTKEYS, DEFAULT_SHOT_HOTKEY)
         self.apply_hotkey()
+
+        self.updater = Updater(self)
+        self.updater.state.connect(self.main.sync_update)
+        if self.tray:
+            self.tray.messageClicked.connect(self.show_main)
+        self.update_timer = QTimer(self, interval=6 * 3600 * 1000)
+        self.update_timer.timeout.connect(self.maybe_check_update)
+        self.update_timer.start()
+        QTimer.singleShot(8000, self.maybe_check_update)
+
+    # ── обновления
+    def maybe_check_update(self):
+        if self.store.get_setting("auto_update", "1") == "1":
+            self.updater.check()
+
+    def on_update_checked(self, manual):
+        u = self.updater
+        L = u.latest
+        if L and not manual and self.tray and self.store.get_setting("update_notified", "") != L["version"]:
+            self.store.set_setting("update_notified", L["version"])
+            self.tray.showMessage(APP, f"Вышла версия {L['version']}. Откройте Kipshot и нажмите «Обновить».",
+                                  self.icon, 8000)
+        if manual:
+            self.main.notify(f"Доступна версия {L['version']} — кнопка «Обновить» слева" if L else
+                             f"Не удалось проверить обновления: {u.error}" if u.error else
+                             f"У вас последняя версия ({APP_VERSION})", 4000)
 
     # ── буфер обмена
     def on_clipboard(self):
