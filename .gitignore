@@ -1,0 +1,9 @@
+build/
+dist/
+release/
+*.spec
+__pycache__/
+*.pyc
+*.bak*
+*.db
+*.log
